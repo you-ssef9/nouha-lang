@@ -1,20 +1,14 @@
-say "Hello Nouha Programming Language"
+say "Hello World"
+set x = 10
+set y = 20
 
-set x = 5
-set y = 2
+if x > 5:
+    say "x is greater than 5"
 
-if x > y:
-    say "x > y"
+if y < 3:
+    say "y is less than 3"
 else:
-    say "x <= y"
+    say "y is not less than 3"
 
-loop i in 1..x:
-    say i
-
-def func(name):
-    say "Hello " + name
-
-func("Nouha")
-
-use math
-say math.sqrt(16)
+set sum = x + y
+say "Sum: " + sum
