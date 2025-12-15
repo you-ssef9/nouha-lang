@@ -1,148 +1,259 @@
 #!/usr/bin/env python3
 """
-Nouha Language - Advanced Interpreter
-A dynamically typed scripting language
+Nouha Programming Language - Advanced Interpreter
+Version 2.0 - Enterprise Edition
 """
 
 import sys
 import os
-import math
 import re
+import math
 import json
 import time
 import random
-from typing import Any, Dict, List, Optional, Tuple, Callable
-from enum import Enum
-from dataclasses import dataclass
-import readline  # For better REPL experience
+import datetime
+import hashlib
+import inspect
+import threading
+import multiprocessing
+import asyncio
+import collections
+import typing
+import decimal
+import fractions
+import itertools
+import statistics
+import textwrap
+import string
+import csv
+import pickle
+import sqlite3
+import urllib.parse
+import urllib.request
+from typing import Any, Dict, List, Optional, Tuple, Union, Callable, Set
+from enum import Enum, auto
+from dataclasses import dataclass, field
+from contextlib import contextmanager
+from pathlib import Path
 
-# ==================== AST NODES ====================
+# ==================== TYPE SYSTEM ====================
+class NouhaType(Enum):
+    NUMBER = auto()
+    STRING = auto()
+    BOOLEAN = auto()
+    LIST = auto()
+    DICT = auto()
+    FUNCTION = auto()
+    CLASS = auto()
+    OBJECT = auto()
+    NULL = auto()
+    MODULE = auto()
+    ITERATOR = auto()
+    COROUTINE = auto()
+
+@dataclass
+class NouhaValue:
+    type: NouhaType
+    value: Any
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def __repr__(self):
+        return f"NouhaValue({self.type.name}: {repr(self.value)})"
+    
+    def copy(self):
+        return NouhaValue(self.type, self.value, self.metadata.copy())
+
+# ==================== AST & PARSER ====================
 class NodeType(Enum):
-    NUMBER = "number"
-    STRING = "string"
-    BOOLEAN = "boolean"
-    IDENTIFIER = "identifier"
-    BINARY_OP = "binary_op"
-    UNARY_OP = "unary_op"
-    CALL = "call"
-    INDEX = "index"
-    ASSIGNMENT = "assignment"
-    BLOCK = "block"
-    IF = "if"
-    WHILE = "while"
-    FOR = "for"
-    FUNCTION = "function"
-    RETURN = "return"
-    LIST = "list"
-    DICT = "dict"
-    IMPORT = "import"
-    TRY_CATCH = "try_catch"
+    PROGRAM = auto()
+    BLOCK = auto()
+    STATEMENT = auto()
+    EXPRESSION = auto()
+    LITERAL = auto()
+    IDENTIFIER = auto()
+    BINARY_OP = auto()
+    UNARY_OP = auto()
+    ASSIGNMENT = auto()
+    FUNCTION_DEF = auto()
+    FUNCTION_CALL = auto()
+    CLASS_DEF = auto()
+    METHOD_CALL = auto()
+    IF_STATEMENT = auto()
+    WHILE_LOOP = auto()
+    FOR_LOOP = auto()
+    TRY_CATCH = auto()
+    IMPORT = auto()
+    EXPORT = auto()
+    AWAIT_EXPR = auto()
+    YIELD_EXPR = auto()
+    LAMBDA = auto()
+    LIST_COMP = auto()
+    DICT_COMP = auto()
+    GENERATOR = auto()
+    SLICE = auto()
+    TUPLE = auto()
+    SET = auto()
 
 @dataclass
 class ASTNode:
-    type: NodeType
+    node_type: NodeType
     value: Any = None
-    children: List['ASTNode'] = None
+    children: List['ASTNode'] = field(default_factory=list)
     line: int = 0
-    col: int = 0
-    
-    def __post_init__(self):
-        if self.children is None:
-            self.children = []
+    column: int = 0
+    annotations: Dict[str, Any] = field(default_factory=dict)
 
-# ==================== TOKENIZER ====================
 class TokenType(Enum):
     # Keywords
-    IF = "if"
-    ELSE = "else"
-    ELIF = "elif"
-    WHILE = "while"
-    FOR = "for"
-    IN = "in"
-    FUNCTION = "func"
-    RETURN = "return"
-    TRUE = "true"
-    FALSE = "false"
-    NULL = "null"
-    AND = "and"
-    OR = "or"
-    NOT = "not"
-    IMPORT = "import"
-    TRY = "try"
-    CATCH = "catch"
-    THROW = "throw"
-    CLASS = "class"
+    LET = auto()
+    CONST = auto()
+    FUNC = auto()
+    CLASS = auto()
+    IF = auto()
+    ELIF = auto()
+    ELSE = auto()
+    WHILE = auto()
+    FOR = auto()
+    IN = auto()
+    BREAK = auto()
+    CONTINUE = auto()
+    RETURN = auto()
+    YIELD = auto()
+    ASYNC = auto()
+    AWAIT = auto()
+    TRY = auto()
+    CATCH = auto()
+    FINALLY = auto()
+    THROW = auto()
+    IMPORT = auto()
+    EXPORT = auto()
+    FROM = auto()
+    AS = auto()
+    TRUE = auto()
+    FALSE = auto()
+    NULL = auto()
+    UNDEFINED = auto()
+    TYPE = auto()
+    INTERFACE = auto()
+    ENUM = auto()
+    MATCH = auto()
+    CASE = auto()
+    DEFAULT = auto()
+    
+    # Types
+    NUMBER = auto()
+    STRING = auto()
+    IDENTIFIER = auto()
     
     # Operators
-    PLUS = "+"
-    MINUS = "-"
-    MULTIPLY = "*"
-    DIVIDE = "/"
-    MODULO = "%"
-    POWER = "**"
+    PLUS = auto()
+    MINUS = auto()
+    MULTIPLY = auto()
+    DIVIDE = auto()
+    MODULO = auto()
+    POWER = auto()
+    INCREMENT = auto()
+    DECREMENT = auto()
     
     # Comparison
-    EQ = "=="
-    NEQ = "!="
-    LT = "<"
-    GT = ">"
-    LTE = "<="
-    GTE = ">="
+    EQ = auto()
+    NEQ = auto()
+    LT = auto()
+    GT = auto()
+    LTE = auto()
+    GTE = auto()
+    
+    # Logical
+    AND = auto()
+    OR = auto()
+    NOT = auto()
+    
+    # Bitwise
+    BIT_AND = auto()
+    BIT_OR = auto()
+    BIT_XOR = auto()
+    BIT_NOT = auto()
+    LEFT_SHIFT = auto()
+    RIGHT_SHIFT = auto()
     
     # Assignment
-    ASSIGN = "="
-    PLUS_EQ = "+="
-    MINUS_EQ = "-="
-    MULT_EQ = "*="
-    DIV_EQ = "/="
+    ASSIGN = auto()
+    PLUS_ASSIGN = auto()
+    MINUS_ASSIGN = auto()
+    MULT_ASSIGN = auto()
+    DIV_ASSIGN = auto()
+    MOD_ASSIGN = auto()
+    AND_ASSIGN = auto()
+    OR_ASSIGN = auto()
+    XOR_ASSIGN = auto()
+    SHIFT_LEFT_ASSIGN = auto()
+    SHIFT_RIGHT_ASSIGN = auto()
     
     # Delimiters
-    LPAREN = "("
-    RPAREN = ")"
-    LBRACE = "{"
-    RBRACE = "}"
-    LBRACKET = "["
-    RBRACKET = "]"
-    COMMA = ","
-    DOT = "."
-    COLON = ":"
-    SEMICOLON = ";"
+    LPAREN = auto()
+    RPAREN = auto()
+    LBRACE = auto()
+    RBRACE = auto()
+    LBRACKET = auto()
+    RBRACKET = auto()
+    COMMA = auto()
+    DOT = auto()
+    COLON = auto()
+    SEMICOLON = auto()
+    ARROW = auto()
+    SPREAD = auto()
+    QUESTION = auto()
+    DOUBLE_COLON = auto()
+    AT = auto()
     
-    # Literals
-    NUMBER = "NUMBER"
-    STRING = "STRING"
-    IDENTIFIER = "IDENTIFIER"
-    
-    EOF = "EOF"
+    # Special
+    EOF = auto()
 
 @dataclass
 class Token:
     type: TokenType
     value: Any
     line: int
-    col: int
+    column: int
 
-class Tokenizer:
+class AdvancedLexer:
+    """Advanced lexer with Unicode support and error recovery"""
+    
     KEYWORDS = {
+        'let': TokenType.LET,
+        'const': TokenType.CONST,
+        'func': TokenType.FUNC,
+        'class': TokenType.CLASS,
         'if': TokenType.IF,
-        'else': TokenType.ELSE,
         'elif': TokenType.ELIF,
+        'else': TokenType.ELSE,
         'while': TokenType.WHILE,
         'for': TokenType.FOR,
         'in': TokenType.IN,
-        'func': TokenType.FUNCTION,
+        'break': TokenType.BREAK,
+        'continue': TokenType.CONTINUE,
         'return': TokenType.RETURN,
+        'yield': TokenType.YIELD,
+        'async': TokenType.ASYNC,
+        'await': TokenType.AWAIT,
+        'try': TokenType.TRY,
+        'catch': TokenType.CATCH,
+        'finally': TokenType.FINALLY,
+        'throw': TokenType.THROW,
+        'import': TokenType.IMPORT,
+        'export': TokenType.EXPORT,
+        'from': TokenType.FROM,
+        'as': TokenType.AS,
         'true': TokenType.TRUE,
         'false': TokenType.FALSE,
         'null': TokenType.NULL,
-        'and': TokenType.AND,
-        'or': TokenType.OR,
-        'not': TokenType.NOT,
-        'import': TokenType.IMPORT,
-        'try': TokenType.TRY,
-        'catch': TokenType.CATCH,
-        'throw': TokenType.THROW,
-        'class': TokenType.CLASS,
+        'undefined': TokenType.UNDEFINED,
+        'type': TokenType.TYPE,
+        'interface': TokenType.INTERFACE,
+        'enum': TokenType.ENUM,
+        'match': TokenType.MATCH,
+        'case': TokenType.CASE,
+        'default': TokenType.DEFAULT,
     }
     
     OPERATORS = {
@@ -152,315 +263,446 @@ class Tokenizer:
         '/': TokenType.DIVIDE,
         '%': TokenType.MODULO,
         '**': TokenType.POWER,
-        '=': TokenType.ASSIGN,
+        '++': TokenType.INCREMENT,
+        '--': TokenType.DECREMENT,
         '==': TokenType.EQ,
         '!=': TokenType.NEQ,
         '<': TokenType.LT,
         '>': TokenType.GT,
         '<=': TokenType.LTE,
         '>=': TokenType.GTE,
-        '+=': TokenType.PLUS_EQ,
-        '-=': TokenType.MINUS_EQ,
-        '*=': TokenType.MULT_EQ,
-        '/=': TokenType.DIV_EQ,
+        '&&': TokenType.AND,
+        '||': TokenType.OR,
+        '!': TokenType.NOT,
+        '&': TokenType.BIT_AND,
+        '|': TokenType.BIT_OR,
+        '^': TokenType.BIT_XOR,
+        '~': TokenType.BIT_NOT,
+        '<<': TokenType.LEFT_SHIFT,
+        '>>': TokenType.RIGHT_SHIFT,
+        '=': TokenType.ASSIGN,
+        '+=': TokenType.PLUS_ASSIGN,
+        '-=': TokenType.MINUS_ASSIGN,
+        '*=': TokenType.MULT_ASSIGN,
+        '/=': TokenType.DIV_ASSIGN,
+        '%=': TokenType.MOD_ASSIGN,
+        '&=': TokenType.AND_ASSIGN,
+        '|=': TokenType.OR_ASSIGN,
+        '^=': TokenType.XOR_ASSIGN,
+        '<<=': TokenType.SHIFT_LEFT_ASSIGN,
+        '>>=': TokenType.SHIFT_RIGHT_ASSIGN,
+        '=>': TokenType.ARROW,
+        '...': TokenType.SPREAD,
+        '?': TokenType.QUESTION,
+        '::': TokenType.DOUBLE_COLON,
+        '@': TokenType.AT,
     }
     
-    def __init__(self, source: str):
+    def __init__(self, source: str, filename: str = "<string>"):
         self.source = source
+        self.filename = filename
         self.position = 0
         self.line = 1
-        self.col = 1
-        
+        self.column = 1
+        self.tokens = []
+        self.errors = []
+    
     def tokenize(self) -> List[Token]:
-        tokens = []
-        while self.position < len(self.source):
-            char = self.source[self.position]
-            
-            # Whitespace
-            if char in ' \t':
+        while not self.is_at_end():
+            self.scan_token()
+        self.add_token(TokenType.EOF, None)
+        return self.tokens
+    
+    def scan_token(self):
+        char = self.advance()
+        
+        # Whitespace
+        if char in ' \t\r':
+            self.column += 1
+            return
+        
+        # Newline
+        if char == '\n':
+            self.line += 1
+            self.column = 1
+            return
+        
+        # Comments
+        if char == '#':
+            while self.peek() != '\n' and not self.is_at_end():
                 self.advance()
-                continue
-            elif char == '\n':
-                self.line += 1
-                self.col = 1
+            return
+        
+        if char == '/' and self.peek() == '/':
+            while self.peek() != '\n' and not self.is_at_end():
                 self.advance()
-                continue
-            
-            # Comments
-            elif char == '#':
-                while self.position < len(self.source) and self.source[self.position] != '\n':
+            return
+        
+        if char == '/' and self.peek() == '*':
+            self.advance()  # Skip '*'
+            while not (self.peek() == '*' and self.peek_next() == '/'):
+                if self.is_at_end():
+                    self.error("Unterminated multi-line comment")
+                    return
+                if self.peek() == '\n':
+                    self.line += 1
+                    self.column = 0
+                self.advance()
+            self.advance()  # Skip '*'
+            self.advance()  # Skip '/'
+            return
+        
+        # Strings
+        if char in ('"', "'", '`'):
+            self.string(char)
+            return
+        
+        # Numbers
+        if char.isdigit() or (char == '.' and self.peek().isdigit()):
+            self.number()
+            return
+        
+        # Identifiers
+        if char.isalpha() or char == '_' or char.isdigit():
+            self.identifier()
+            return
+        
+        # Operators
+        if char in self.OPERATORS:
+            # Check for multi-character operators
+            if char + self.peek() in self.OPERATORS:
+                double_op = char + self.peek()
+                if double_op + self.peek_next() in self.OPERATORS:
+                    triple_op = double_op + self.peek_next()
+                    self.add_token(self.OPERATORS[triple_op], triple_op)
                     self.advance()
-                continue
-            
-            # Strings
-            elif char in '"\'`':
-                tokens.append(self.read_string(char))
-                continue
-            
-            # Numbers
-            elif char.isdigit():
-                tokens.append(self.read_number())
-                continue
-            
-            # Identifiers and keywords
-            elif char.isalpha() or char == '_':
-                tokens.append(self.read_identifier())
-                continue
-            
-            # Operators
-            elif char in self.OPERATORS:
-                # Check for two-character operators
-                if self.position + 1 < len(self.source):
-                    two_char = char + self.source[self.position + 1]
-                    if two_char in self.OPERATORS:
-                        tokens.append(Token(
-                            self.OPERATORS[two_char],
-                            two_char,
-                            self.line,
-                            self.col
-                        ))
-                        self.advance(2)
-                        continue
-                
-                tokens.append(Token(
-                    self.OPERATORS[char],
-                    char,
-                    self.line,
-                    self.col
-                ))
-                self.advance()
-                continue
-            
-            # Delimiters
-            elif char == '(':
-                tokens.append(Token(TokenType.LPAREN, char, self.line, self.col))
-            elif char == ')':
-                tokens.append(Token(TokenType.RPAREN, char, self.line, self.col))
-            elif char == '{':
-                tokens.append(Token(TokenType.LBRACE, char, self.line, self.col))
-            elif char == '}':
-                tokens.append(Token(TokenType.RBRACE, char, self.line, self.col))
-            elif char == '[':
-                tokens.append(Token(TokenType.LBRACKET, char, self.line, self.col))
-            elif char == ']':
-                tokens.append(Token(TokenType.RBRACKET, char, self.line, self.col))
-            elif char == ',':
-                tokens.append(Token(TokenType.COMMA, char, self.line, self.col))
-            elif char == '.':
-                tokens.append(Token(TokenType.DOT, char, self.line, self.col))
-            elif char == ':':
-                tokens.append(Token(TokenType.COLON, char, self.line, self.col))
-            elif char == ';':
-                tokens.append(Token(TokenType.SEMICOLON, char, self.line, self.col))
+                    self.advance()
+                else:
+                    self.add_token(self.OPERATORS[double_op], double_op)
+                    self.advance()
             else:
-                raise SyntaxError(f"Unexpected character '{char}' at line {self.line}, col {self.col}")
-            
-            self.advance()
+                self.add_token(self.OPERATORS[char], char)
+            return
         
-        tokens.append(Token(TokenType.EOF, None, self.line, self.col))
-        return tokens
+        # Delimiters
+        delimiter_map = {
+            '(': TokenType.LPAREN,
+            ')': TokenType.RPAREN,
+            '{': TokenType.LBRACE,
+            '}': TokenType.RBRACE,
+            '[': TokenType.LBRACKET,
+            ']': TokenType.RBRACKET,
+            ',': TokenType.COMMA,
+            '.': TokenType.DOT,
+            ':': TokenType.COLON,
+            ';': TokenType.SEMICOLON,
+        }
+        
+        if char in delimiter_map:
+            self.add_token(delimiter_map[char], char)
+            return
+        
+        # Unknown character
+        self.error(f"Unexpected character: '{char}'")
     
-    def advance(self, n=1):
-        self.position += n
-        self.col += n
-    
-    def read_string(self, quote_char: str) -> Token:
+    def string(self, quote: str):
         start_line = self.line
-        start_col = self.col
-        self.advance()  # Skip opening quote
+        start_column = self.column - 1
         
-        value = ""
-        while self.position < len(self.source) and self.source[self.position] != quote_char:
-            char = self.source[self.position]
+        value = ''
+        is_template = (quote == '`')
+        
+        while not (self.peek() == quote and not self.is_escaped()):
+            if self.is_at_end():
+                self.error("Unterminated string", start_line, start_column)
+                return
+            
+            char = self.advance()
+            
             if char == '\\':
-                self.advance()
-                if self.position < len(self.source):
-                    esc_char = self.source[self.position]
-                    if esc_char == 'n':
-                        value += '\n'
-                    elif esc_char == 't':
-                        value += '\t'
-                    elif esc_char == 'r':
-                        value += '\r'
-                    elif esc_char == '\\':
-                        value += '\\'
-                    elif esc_char == quote_char:
-                        value += quote_char
-                    else:
-                        value += esc_char
+                escape_char = self.advance()
+                value += self.escape_sequence(escape_char)
+            elif is_template and char == '$' and self.peek() == '{':
+                # Template interpolation
+                self.advance()  # Skip '{'
+                value += char  # Keep '$' for now
             else:
                 value += char
             
             if char == '\n':
+                if not is_template:
+                    self.error("Newline in string literal", start_line, start_column)
+                    return
                 self.line += 1
-                self.col = 1
-            else:
-                self.col += 1
-            
-            self.advance()
-        
-        if self.position >= len(self.source):
-            raise SyntaxError(f"Unterminated string at line {start_line}")
+                self.column = 1
         
         self.advance()  # Skip closing quote
-        return Token(TokenType.STRING, value, start_line, start_col)
+        self.add_token(TokenType.STRING, value)
     
-    def read_number(self) -> Token:
-        start_line = self.line
-        start_col = self.col
+    def number(self):
+        start_column = self.column - 1
+        value = ''
+        is_float = False
+        is_hex = False
+        is_binary = False
+        is_octal = False
         
-        value = ""
-        has_dot = False
+        # Handle different number bases
+        if self.peek(-1) == '0':
+            if self.peek() in 'xX':
+                is_hex = True
+                self.advance()  # Skip 'x'
+            elif self.peek() in 'bB':
+                is_binary = True
+                self.advance()  # Skip 'b'
+            elif self.peek() in 'oO':
+                is_octal = True
+                self.advance()  # Skip 'o'
         
-        while self.position < len(self.source):
-            char = self.source[self.position]
-            if char.isdigit():
-                value += char
-            elif char == '.' and not has_dot:
-                value += char
-                has_dot = True
+        while self.peek().isdigit() or \
+              (is_hex and self.peek().lower() in 'abcdef') or \
+              (self.peek() == '.' and not is_float) or \
+              (self.peek().lower() == 'e'):
+            
+            char = self.advance()
+            
+            if char == '.':
+                is_float = True
+            elif char.lower() == 'e':
+                is_float = True
+                if self.peek() in '+-':
+                    self.advance()
+            
+            value += char
+        
+        # Parse the number
+        try:
+            if is_hex:
+                num = int(value, 16)
+            elif is_binary:
+                num = int(value, 2)
+            elif is_octal:
+                num = int(value, 8)
+            elif is_float:
+                num = float(value)
             else:
-                break
-            self.advance()
+                num = int(value)
+        except ValueError:
+            self.error(f"Invalid number: {value}", self.line, start_column)
+            return
         
-        return Token(
-            TokenType.NUMBER,
-            float(value) if has_dot else int(value),
-            start_line,
-            start_col
-        )
+        self.add_token(TokenType.NUMBER, num)
     
-    def read_identifier(self) -> Token:
-        start_line = self.line
-        start_col = self.col
+    def identifier(self):
+        start_column = self.column - 1
+        value = self.peek(-1)
         
-        value = ""
-        while self.position < len(self.source):
-            char = self.source[self.position]
-            if char.isalnum() or char == '_':
-                value += char
-            else:
-                break
-            self.advance()
+        while self.peek().isalnum() or self.peek() == '_':
+            value += self.advance()
         
         # Check if it's a keyword
         token_type = self.KEYWORDS.get(value, TokenType.IDENTIFIER)
-        return Token(token_type, value, start_line, start_col)
+        self.add_token(token_type, value)
+    
+    def escape_sequence(self, char: str) -> str:
+        escapes = {
+            'n': '\n',
+            'r': '\r',
+            't': '\t',
+            'b': '\b',
+            'f': '\f',
+            'v': '\v',
+            '0': '\0',
+            "'": "'",
+            '"': '"',
+            '\\': '\\',
+            'u': self.unicode_escape(4),
+            'U': self.unicode_escape(8),
+            'x': self.hex_escape(2),
+        }
+        return escapes.get(char, char)
+    
+    def unicode_escape(self, length: int) -> str:
+        hex_str = ''
+        for _ in range(length):
+            hex_str += self.advance()
+        try:
+            return chr(int(hex_str, 16))
+        except ValueError:
+            self.error(f"Invalid Unicode escape: \\u{hex_str}")
+            return ''
+    
+    def hex_escape(self, length: int) -> str:
+        hex_str = ''
+        for _ in range(length):
+            hex_str += self.advance()
+        try:
+            return chr(int(hex_str, 16))
+        except ValueError:
+            self.error(f"Invalid hex escape: \\x{hex_str}")
+            return ''
+    
+    def add_token(self, token_type: TokenType, value: Any):
+        self.tokens.append(Token(token_type, value, self.line, self.column))
+    
+    def error(self, message: str, line: int = None, column: int = None):
+        line = line or self.line
+        column = column or self.column
+        self.errors.append(f"{self.filename}:{line}:{column}: {message}")
+    
+    def advance(self) -> str:
+        char = self.source[self.position]
+        self.position += 1
+        self.column += 1
+        return char
+    
+    def peek(self, offset: int = 0) -> str:
+        pos = self.position + offset
+        if pos >= len(self.source):
+            return '\0'
+        return self.source[pos]
+    
+    def peek_next(self) -> str:
+        return self.peek(1)
+    
+    def is_at_end(self) -> bool:
+        return self.position >= len(self.source)
+    
+    def is_escaped(self) -> bool:
+        count = 0
+        pos = self.position - 1
+        while pos >= 0 and self.source[pos] == '\\':
+            count += 1
+            pos -= 1
+        return count % 2 == 1
 
-# ==================== PARSER ====================
+# ==================== ADVANCED PARSER ====================
 class Parser:
-    def __init__(self, tokens: List[Token]):
+    def __init__(self, tokens: List[Token], filename: str = "<string>"):
         self.tokens = tokens
-        self.position = 0
+        self.filename = filename
+        self.current = 0
+        self.errors = []
+        self.ast = None
     
     def parse(self) -> ASTNode:
-        statements = []
-        while not self.is_at_end():
-            statements.append(self.statement())
-        return ASTNode(NodeType.BLOCK, children=statements)
+        try:
+            statements = []
+            while not self.is_at_end():
+                statements.append(self.declaration())
+            
+            self.ast = ASTNode(NodeType.PROGRAM, children=statements)
+            return self.ast
+        except ParseError as e:
+            self.errors.append(str(e))
+            return None
     
-    def statement(self) -> ASTNode:
-        if self.match(TokenType.IF):
-            return self.if_statement()
-        elif self.match(TokenType.WHILE):
-            return self.while_statement()
-        elif self.match(TokenType.FOR):
-            return self.for_statement()
-        elif self.match(TokenType.FUNCTION):
-            return self.function_statement()
-        elif self.match(TokenType.RETURN):
-            return self.return_statement()
-        elif self.match(TokenType.IMPORT):
-            return self.import_statement()
-        elif self.match(TokenType.TRY):
-            return self.try_catch_statement()
-        elif self.match(TokenType.THROW):
-            return self.throw_statement()
-        elif self.match(TokenType.CLASS):
-            return self.class_statement()
-        elif self.check(TokenType.IDENTIFIER) and self.check_next(TokenType.ASSIGN):
-            return self.assignment_statement()
-        else:
-            return self.expression_statement()
+    def declaration(self) -> ASTNode:
+        try:
+            if self.match(TokenType.LET, TokenType.CONST):
+                return self.variable_declaration()
+            elif self.match(TokenType.FUNC):
+                return self.function_declaration()
+            elif self.match(TokenType.CLASS):
+                return self.class_declaration()
+            elif self.match(TokenType.IMPORT):
+                return self.import_declaration()
+            elif self.match(TokenType.EXPORT):
+                return self.export_declaration()
+            elif self.match(TokenType.TYPE):
+                return self.type_alias_declaration()
+            elif self.match(TokenType.INTERFACE):
+                return self.interface_declaration()
+            elif self.match(TokenType.ENUM):
+                return self.enum_declaration()
+            else:
+                return self.statement()
+        except ParseError as e:
+            self.synchronize()
+            return ASTNode(NodeType.STATEMENT, value="error")
     
-    def if_statement(self) -> ASTNode:
-        condition = self.expression()
-        self.consume(TokenType.LBRACE, "Expect '{' after if condition")
+    def variable_declaration(self) -> ASTNode:
+        is_const = self.previous().type == TokenType.CONST
+        name = self.consume(TokenType.IDENTIFIER, "Expect variable name")
         
-        then_branch = self.block()
+        initializer = None
+        if self.match(TokenType.ASSIGN):
+            initializer = self.expression()
         
-        elif_branches = []
-        while self.match(TokenType.ELIF):
-            elif_cond = self.expression()
-            self.consume(TokenType.LBRACE, "Expect '{' after elif condition")
-            elif_branch = self.block()
-            elif_branches.extend([elif_cond, elif_branch])
+        self.consume(TokenType.SEMICOLON, "Expect ';' after variable declaration")
         
-        else_branch = None
-        if self.match(TokenType.ELSE):
-            self.consume(TokenType.LBRACE, "Expect '{' after else")
-            else_branch = self.block()
-        
-        # Create a chain of if-elif-else nodes
-        result = ASTNode(NodeType.IF, children=[condition, then_branch, else_branch])
-        if elif_branches:
-            result.children.extend(elif_branches)
-        return result
+        return ASTNode(
+            NodeType.ASSIGNMENT,
+            value={"name": name.value, "const": is_const},
+            children=[initializer] if initializer else []
+        )
     
-    def while_statement(self) -> ASTNode:
-        condition = self.expression()
-        self.consume(TokenType.LBRACE, "Expect '{' after while condition")
-        body = self.block()
-        return ASTNode(NodeType.WHILE, children=[condition, body])
-    
-    def for_statement(self) -> ASTNode:
-        self.consume(TokenType.LPAREN, "Expect '(' after 'for'")
-        
-        # Initializer
-        if self.match(TokenType.SEMICOLON):
-            initializer = None
-        else:
-            initializer = self.expression_statement()
-        
-        # Condition
-        condition = None
-        if not self.check(TokenType.SEMICOLON):
-            condition = self.expression()
-        self.consume(TokenType.SEMICOLON, "Expect ';' after loop condition")
-        
-        # Increment
-        increment = None
-        if not self.check(TokenType.RPAREN):
-            increment = self.expression()
-        self.consume(TokenType.RPAREN, "Expect ')' after for clauses")
-        
-        self.consume(TokenType.LBRACE, "Expect '{' after for")
-        body = self.block()
-        
-        return ASTNode(NodeType.FOR, children=[initializer, condition, increment, body])
-    
-    def function_statement(self) -> ASTNode:
-        name = self.consume(TokenType.IDENTIFIER, "Expect function name").value
+    def function_declaration(self) -> ASTNode:
+        is_async = self.match(TokenType.ASYNC)
+        name = self.consume(TokenType.IDENTIFIER, "Expect function name")
         
         self.consume(TokenType.LPAREN, "Expect '(' after function name")
-        params = []
-        if not self.check(TokenType.RPAREN):
-            params.append(self.consume(TokenType.IDENTIFIER, "Expect parameter name").value)
-            while self.match(TokenType.COMMA):
-                params.append(self.consume(TokenType.IDENTIFIER, "Expect parameter name").value)
+        params = self.parameters()
         self.consume(TokenType.RPAREN, "Expect ')' after parameters")
+        
+        return_type = None
+        if self.match(TokenType.COLON):
+            return_type = self.type_annotation()
         
         self.consume(TokenType.LBRACE, "Expect '{' before function body")
         body = self.block()
         
-        return ASTNode(NodeType.FUNCTION, value=name, children=[ASTNode(NodeType.BLOCK, children=body.children)] + [
-            ASTNode(NodeType.IDENTIFIER, value=param) for param in params
-        ])
+        return ASTNode(
+            NodeType.FUNCTION_DEF,
+            value={
+                "name": name.value,
+                "async": is_async,
+                "params": params,
+                "return_type": return_type.value if return_type else None
+            },
+            children=[body]
+        )
+    
+    def class_declaration(self) -> ASTNode:
+        name = self.consume(TokenType.IDENTIFIER, "Expect class name")
+        
+        superclass = None
+        if self.match(TokenType.COLON):
+            superclass = self.consume(TokenType.IDENTIFIER, "Expect superclass name")
+        
+        interfaces = []
+        if self.match(TokenType.IMPLEMENTS):
+            interfaces.append(self.consume(TokenType.IDENTIFIER, "Expect interface name").value)
+            while self.match(TokenType.COMMA):
+                interfaces.append(self.consume(TokenType.IDENTIFIER, "Expect interface name").value)
+        
+        self.consume(TokenType.LBRACE, "Expect '{' before class body")
+        
+        methods = []
+        fields = []
+        while not self.check(TokenType.RBRACE) and not self.is_at_end():
+            if self.match(TokenType.FUNC):
+                methods.append(self.function_declaration())
+            else:
+                fields.append(self.variable_declaration())
+        
+        self.consume(TokenType.RBRACE, "Expect '}' after class body")
+        
+        return ASTNode(
+            NodeType.CLASS_DEF,
+            value={
+                "name": name.value,
+                "superclass": superclass.value if superclass else None,
+                "interfaces": interfaces
+            },
+            children=fields + methods
+        )
     
     def block(self) -> ASTNode:
         statements = []
         while not self.check(TokenType.RBRACE) and not self.is_at_end():
-            statements.append(self.statement())
+            statements.append(self.declaration())
+        
         self.consume(TokenType.RBRACE, "Expect '}' after block")
         return ASTNode(NodeType.BLOCK, children=statements)
     
@@ -468,36 +710,60 @@ class Parser:
         return self.assignment()
     
     def assignment(self) -> ASTNode:
-        expr = self.logical_or()
+        expr = self.or_expression()
         
-        if self.match(TokenType.ASSIGN, TokenType.PLUS_EQ, TokenType.MINUS_EQ, TokenType.MULT_EQ, TokenType.DIV_EQ):
-            operator = self.previous()
+        if self.match(*[
+            TokenType.ASSIGN, TokenType.PLUS_ASSIGN, TokenType.MINUS_ASSIGN,
+            TokenType.MULT_ASSIGN, TokenType.DIV_ASSIGN, TokenType.MOD_ASSIGN,
+            TokenType.AND_ASSIGN, TokenType.OR_ASSIGN, TokenType.XOR_ASSIGN,
+            TokenType.SHIFT_LEFT_ASSIGN, TokenType.SHIFT_RIGHT_ASSIGN
+        ]):
+            equals = self.previous()
             value = self.assignment()
             
-            if expr.type != NodeType.IDENTIFIER:
-                raise SyntaxError("Invalid assignment target")
-            
-            return ASTNode(NodeType.ASSIGNMENT, value=operator.type, children=[expr, value])
+            if expr.node_type == NodeType.IDENTIFIER:
+                return ASTNode(
+                    NodeType.ASSIGNMENT,
+                    value={"operator": equals.type, "name": expr.value},
+                    children=[value]
+                )
+            elif expr.node_type == NodeType.METHOD_CALL:
+                # Property assignment
+                return ASTNode(
+                    NodeType.ASSIGNMENT,
+                    value={"operator": equals.type, "property": True},
+                    children=[expr, value]
+                )
+            else:
+                self.error(equals, "Invalid assignment target")
         
         return expr
     
-    def logical_or(self) -> ASTNode:
-        expr = self.logical_and()
+    def or_expression(self) -> ASTNode:
+        expr = self.and_expression()
         
         while self.match(TokenType.OR):
             operator = self.previous()
-            right = self.logical_and()
-            expr = ASTNode(NodeType.BINARY_OP, value=operator.type, children=[expr, right])
+            right = self.and_expression()
+            expr = ASTNode(
+                NodeType.BINARY_OP,
+                value=operator.type,
+                children=[expr, right]
+            )
         
         return expr
     
-    def logical_and(self) -> ASTNode:
+    def and_expression(self) -> ASTNode:
         expr = self.equality()
         
         while self.match(TokenType.AND):
             operator = self.previous()
             right = self.equality()
-            expr = ASTNode(NodeType.BINARY_OP, value=operator.type, children=[expr, right])
+            expr = ASTNode(
+                NodeType.BINARY_OP,
+                value=operator.type,
+                children=[expr, right]
+            )
         
         return expr
     
@@ -507,55 +773,121 @@ class Parser:
         while self.match(TokenType.EQ, TokenType.NEQ):
             operator = self.previous()
             right = self.comparison()
-            expr = ASTNode(NodeType.BINARY_OP, value=operator.type, children=[expr, right])
+            expr = ASTNode(
+                NodeType.BINARY_OP,
+                value=operator.type,
+                children=[expr, right]
+            )
         
         return expr
     
     def comparison(self) -> ASTNode:
-        expr = self.term()
+        expr = self.bitwise_or()
         
         while self.match(TokenType.LT, TokenType.GT, TokenType.LTE, TokenType.GTE):
             operator = self.previous()
-            right = self.term()
-            expr = ASTNode(NodeType.BINARY_OP, value=operator.type, children=[expr, right])
+            right = self.bitwise_or()
+            expr = ASTNode(
+                NodeType.BINARY_OP,
+                value=operator.type,
+                children=[expr, right]
+            )
         
         return expr
     
-    def term(self) -> ASTNode:
-        expr = self.factor()
+    def bitwise_or(self) -> ASTNode:
+        expr = self.bitwise_xor()
+        
+        while self.match(TokenType.BIT_OR):
+            operator = self.previous()
+            right = self.bitwise_xor()
+            expr = ASTNode(
+                NodeType.BINARY_OP,
+                value=operator.type,
+                children=[expr, right]
+            )
+        
+        return expr
+    
+    def bitwise_xor(self) -> ASTNode:
+        expr = self.bitwise_and()
+        
+        while self.match(TokenType.BIT_XOR):
+            operator = self.previous()
+            right = self.bitwise_and()
+            expr = ASTNode(
+                NodeType.BINARY_OP,
+                value=operator.type,
+                children=[expr, right]
+            )
+        
+        return expr
+    
+    def bitwise_and(self) -> ASTNode:
+        expr = self.shift()
+        
+        while self.match(TokenType.BIT_AND):
+            operator = self.previous()
+            right = self.shift()
+            expr = ASTNode(
+                NodeType.BINARY_OP,
+                value=operator.type,
+                children=[expr, right]
+            )
+        
+        return expr
+    
+    def shift(self) -> ASTNode:
+        expr = self.addition()
+        
+        while self.match(TokenType.LEFT_SHIFT, TokenType.RIGHT_SHIFT):
+            operator = self.previous()
+            right = self.addition()
+            expr = ASTNode(
+                NodeType.BINARY_OP,
+                value=operator.type,
+                children=[expr, right]
+            )
+        
+        return expr
+    
+    def addition(self) -> ASTNode:
+        expr = self.multiplication()
         
         while self.match(TokenType.PLUS, TokenType.MINUS):
             operator = self.previous()
-            right = self.factor()
-            expr = ASTNode(NodeType.BINARY_OP, value=operator.type, children=[expr, right])
+            right = self.multiplication()
+            expr = ASTNode(
+                NodeType.BINARY_OP,
+                value=operator.type,
+                children=[expr, right]
+            )
         
         return expr
     
-    def factor(self) -> ASTNode:
-        expr = self.power()
+    def multiplication(self) -> ASTNode:
+        expr = self.unary()
         
         while self.match(TokenType.MULTIPLY, TokenType.DIVIDE, TokenType.MODULO):
             operator = self.previous()
-            right = self.power()
-            expr = ASTNode(NodeType.BINARY_OP, value=operator.type, children=[expr, right])
-        
-        return expr
-    
-    def power(self) -> ASTNode:
-        expr = self.unary()
-        
-        while self.match(TokenType.POWER):
-            operator = self.previous()
             right = self.unary()
-            expr = ASTNode(NodeType.BINARY_OP, value=operator.type, children=[expr, right])
+            expr = ASTNode(
+                NodeType.BINARY_OP,
+                value=operator.type,
+                children=[expr, right]
+            )
         
         return expr
     
     def unary(self) -> ASTNode:
-        if self.match(TokenType.NOT, TokenType.MINUS):
+        if self.match(TokenType.MINUS, TokenType.NOT, TokenType.BIT_NOT, TokenType.INCREMENT, TokenType.DECREMENT):
             operator = self.previous()
             right = self.unary()
-            return ASTNode(NodeType.UNARY_OP, value=operator.type, children=[right])
+            return ASTNode(
+                NodeType.UNARY_OP,
+                value=operator.type,
+                children=[right]
+            )
         
         return self.call()
     
@@ -567,52 +899,180 @@ class Parser:
                 expr = self.finish_call(expr)
             elif self.match(TokenType.DOT):
                 name = self.consume(TokenType.IDENTIFIER, "Expect property name after '.'")
-                expr = ASTNode(NodeType.INDEX, value=name.value, children=[expr])
+                expr = ASTNode(
+                    NodeType.METHOD_CALL,
+                    value=name.value,
+                    children=[expr]
+                )
             elif self.match(TokenType.LBRACKET):
                 index = self.expression()
                 self.consume(TokenType.RBRACKET, "Expect ']' after index")
-                expr = ASTNode(NodeType.INDEX, children=[expr, index])
+                expr = ASTNode(
+                    NodeType.METHOD_CALL,
+                    value="[]",
+                    children=[expr, index]
+                )
+            elif self.match(TokenType.INCREMENT, TokenType.DECREMENT):
+                # Postfix increment/decrement
+                expr = ASTNode(
+                    NodeType.UNARY_OP,
+                    value=self.previous().type,
+                    children=[expr],
+                    annotations={"postfix": True}
+                )
             else:
                 break
         
         return expr
     
+    def primary(self) -> ASTNode:
+        if self.match(TokenType.TRUE):
+            return ASTNode(NodeType.LITERAL, value=True)
+        if self.match(TokenType.FALSE):
+            return ASTNode(NodeType.LITERAL, value=False)
+        if self.match(TokenType.NULL):
+            return ASTNode(NodeType.LITERAL, value=None)
+        if self.match(TokenType.UNDEFINED):
+            return ASTNode(NodeType.LITERAL, value=Ellipsis)  # Using Ellipsis as undefined
+        
+        if self.match(TokenType.NUMBER, TokenType.STRING):
+            return ASTNode(NodeType.LITERAL, value=self.previous().value)
+        
+        if self.match(TokenType.IDENTIFIER):
+            return ASTNode(NodeType.IDENTIFIER, value=self.previous().value)
+        
+        if self.match(TokenType.LPAREN):
+            expr = self.expression()
+            self.consume(TokenType.RPAREN, "Expect ')' after expression")
+            
+            # Check if it's a tuple
+            if self.match(TokenType.COMMA):
+                elements = [expr]
+                while not self.check(TokenType.RPAREN) and not self.is_at_end():
+                    elements.append(self.expression())
+                    if not self.match(TokenType.COMMA):
+                        break
+                self.consume(TokenType.RPAREN, "Expect ')' after tuple")
+                return ASTNode(NodeType.TUPLE, children=elements)
+            
+            return expr
+        
+        if self.match(TokenType.LBRACKET):
+            return self.list_or_comprehension()
+        
+        if self.match(TokenType.LBRACE):
+            return self.dict_or_comprehension()
+        
+        if self.match(TokenType.FUNC):
+            return self.lambda_expression()
+        
+        if self.match(TokenType.AWAIT):
+            expr = self.primary()
+            return ASTNode(NodeType.AWAIT_EXPR, children=[expr])
+        
+        if self.match(TokenType.YIELD):
+            expr = None
+            if not self.check(TokenType.SEMICOLON):
+                expr = self.expression()
+            return ASTNode(NodeType.YIELD_EXPR, children=[expr] if expr else [])
+        
+        raise self.error(self.peek(), "Expect expression")
+    
     def finish_call(self, callee: ASTNode) -> ASTNode:
         arguments = []
+        
         if not self.check(TokenType.RPAREN):
             arguments.append(self.expression())
             while self.match(TokenType.COMMA):
                 arguments.append(self.expression())
         
-        self.consume(TokenType.RPAREN, "Expect ')' after arguments")
-        return ASTNode(NodeType.CALL, children=[callee] + arguments)
-    
-    def primary(self) -> ASTNode:
-        if self.match(TokenType.TRUE):
-            return ASTNode(NodeType.BOOLEAN, value=True)
-        elif self.match(TokenType.FALSE):
-            return ASTNode(NodeType.BOOLEAN, value=False)
-        elif self.match(TokenType.NULL):
-            return ASTNode(NodeType.IDENTIFIER, value=None)
-        elif self.match(TokenType.NUMBER, TokenType.STRING):
-            token_type = self.previous().type
-            value = self.previous().value
-            node_type = NodeType.NUMBER if token_type == TokenType.NUMBER else NodeType.STRING
-            return ASTNode(node_type, value=value)
-        elif self.match(TokenType.IDENTIFIER):
-            return ASTNode(NodeType.IDENTIFIER, value=self.previous().value)
-        elif self.match(TokenType.LPAREN):
-            expr = self.expression()
-            self.consume(TokenType.RPAREN, "Expect ')' after expression")
-            return expr
-        elif self.match(TokenType.LBRACKET):
-            return self.list_literal()
-        elif self.match(TokenType.LBRACE):
-            return self.dict_literal()
+        paren = self.consume(TokenType.RPAREN, "Expect ')' after arguments")
         
-        raise SyntaxError(f"Expect expression, got {self.peek().type}")
+        return ASTNode(
+            NodeType.FUNCTION_CALL,
+            value={"line": paren.line, "column": paren.column},
+            children=[callee] + arguments
+        )
     
-    def list_literal(self) -> ASTNode:
+    def parameters(self) -> List[Dict]:
+        params = []
+        
+        if not self.check(TokenType.RPAREN):
+            param = self.consume(TokenType.IDENTIFIER, "Expect parameter name").value
+            
+            param_info = {"name": param}
+            
+            if self.match(TokenType.COLON):
+                param_info["type"] = self.type_annotation().value
+            
+            if self.match(TokenType.ASSIGN):
+                param_info["default"] = self.expression()
+            
+            params.append(param_info)
+            
+            while self.match(TokenType.COMMA):
+                param = self.consume(TokenType.IDENTIFIER, "Expect parameter name").value
+                
+                param_info = {"name": param}
+                
+                if self.match(TokenType.COLON):
+                    param_info["type"] = self.type_annotation().value
+                
+                if self.match(TokenType.ASSIGN):
+                    param_info["default"] = self.expression()
+                
+                params.append(param_info)
+        
+        return params
+    
+    def type_annotation(self) -> ASTNode:
+        # Simplified type annotation parsing
+        if self.match(TokenType.IDENTIFIER):
+            type_name = self.previous().value
+            
+            # Check for generic types
+            if self.match(TokenType.LT):
+                generic_args = [self.type_annotation()]
+                while self.match(TokenType.COMMA):
+                    generic_args.append(self.type_annotation())
+                self.consume(TokenType.GT, "Expect '>' after generic arguments")
+                
+                return ASTNode(
+                    NodeType.EXPRESSION,
+                    value=f"{type_name}<{','.join([arg.value for arg in generic_args])}>"
+                )
+            
+            return ASTNode(NodeType.EXPRESSION, value=type_name)
+        
+        # Function type
+        if self.match(TokenType.LPAREN):
+            param_types = []
+            if not self.check(TokenType.RPAREN):
+                param_types.append(self.type_annotation().value)
+                while self.match(TokenType.COMMA):
+                    param_types.append(self.type_annotation().value)
+            self.consume(TokenType.RPAREN, "Expect ')' after parameters")
+            
+            self.consume(TokenType.ARROW, "Expect '=>' in function type")
+            return_type = self.type_annotation().value
+            
+            return ASTNode(
+                NodeType.EXPRESSION,
+                value=f"({','.join(param_types)}) => {return_type}"
+            )
+        
+        # Array type
+        if self.match(TokenType.LBRACKET):
+            self.consume(TokenType.RBRACKET, "Expect ']' in array type")
+            element_type = self.type_annotation().value
+            return ASTNode(NodeType.EXPRESSION, value=f"{element_type}[]")
+        
+        raise self.error(self.peek(), "Expect type annotation")
+    
+    def list_or_comprehension(self) -> ASTNode:
+        if self.check(TokenType.FOR):
+            return self.list_comprehension()
+        
         elements = []
         if not self.check(TokenType.RBRACKET):
             elements.append(self.expression())
@@ -620,28 +1080,91 @@ class Parser:
                 elements.append(self.expression())
         
         self.consume(TokenType.RBRACKET, "Expect ']' after list elements")
-        return ASTNode(NodeType.LIST, children=elements)
+        return ASTNode(NodeType.LIST_COMP, children=elements)
     
-    def dict_literal(self) -> ASTNode:
+    def list_comprehension(self) -> ASTNode:
+        expr = self.expression()
+        self.consume(TokenType.FOR, "Expect 'for' in list comprehension")
+        
+        var = self.consume(TokenType.IDENTIFIER, "Expect variable name in comprehension")
+        self.consume(TokenType.IN, "Expect 'in' in comprehension")
+        
+        iterable = self.expression()
+        
+        conditions = []
+        while self.match(TokenType.IF):
+            conditions.append(self.expression())
+        
+        self.consume(TokenType.RBRACKET, "Expect ']' after comprehension")
+        
+        return ASTNode(
+            NodeType.LIST_COMP,
+            value={"var": var.value},
+            children=[expr, iterable] + conditions
+        )
+    
+    def dict_or_comprehension(self) -> ASTNode:
+        if self.check(TokenType.FOR):
+            return self.dict_comprehension()
+        
         elements = []
         if not self.check(TokenType.RBRACE):
             key = self.expression()
-            self.consume(TokenType.COLON, "Expect ':' after key")
+            self.consume(TokenType.COLON, "Expect ':' after dictionary key")
             value = self.expression()
             elements.extend([key, value])
             
             while self.match(TokenType.COMMA):
                 key = self.expression()
-                self.consume(TokenType.COLON, "Expect ':' after key")
+                self.consume(TokenType.COLON, "Expect ':' after dictionary key")
                 value = self.expression()
                 elements.extend([key, value])
         
-        self.consume(TokenType.RBRACE, "Expect '}' after dictionary elements")
-        return ASTNode(NodeType.DICT, children=elements)
+        self.consume(TokenType.RBRACE, "Expect '}' after dictionary")
+        return ASTNode(NodeType.DICT_COMP, children=elements)
+    
+    def dict_comprehension(self) -> ASTNode:
+        key = self.expression()
+        self.consume(TokenType.COLON, "Expect ':' in dict comprehension")
+        value = self.expression()
+        
+        self.consume(TokenType.FOR, "Expect 'for' in dict comprehension")
+        
+        var = self.consume(TokenType.IDENTIFIER, "Expect variable name in comprehension")
+        self.consume(TokenType.IN, "Expect 'in' in comprehension")
+        
+        iterable = self.expression()
+        
+        conditions = []
+        while self.match(TokenType.IF):
+            conditions.append(self.expression())
+        
+        self.consume(TokenType.RBRACE, "Expect '}' after comprehension")
+        
+        return ASTNode(
+            NodeType.DICT_COMP,
+            value={"var": var.value},
+            children=[key, value, iterable] + conditions
+        )
+    
+    def lambda_expression(self) -> ASTNode:
+        self.consume(TokenType.LPAREN, "Expect '(' after lambda")
+        params = self.parameters()
+        self.consume(TokenType.RPAREN, "Expect ')' after lambda parameters")
+        
+        self.consume(TokenType.ARROW, "Expect '=>' in lambda")
+        
+        body = self.expression()
+        
+        return ASTNode(
+            NodeType.LAMBDA,
+            value={"params": params},
+            children=[body]
+        )
     
     def match(self, *types: TokenType) -> bool:
-        for t in types:
-            if self.check(t):
+        for token_type in types:
+            if self.check(token_type):
                 self.advance()
                 return True
         return False
@@ -651,618 +1174,806 @@ class Parser:
             return False
         return self.peek().type == token_type
     
-    def check_next(self, token_type: TokenType) -> bool:
-        if self.position + 1 >= len(self.tokens):
-            return False
-        return self.tokens[self.position + 1].type == token_type
-    
     def advance(self) -> Token:
         if not self.is_at_end():
-            self.position += 1
+            self.current += 1
         return self.previous()
     
     def is_at_end(self) -> bool:
         return self.peek().type == TokenType.EOF
     
     def peek(self) -> Token:
-        return self.tokens[self.position]
+        return self.tokens[self.current]
     
     def previous(self) -> Token:
-        return self.tokens[self.position - 1]
+        return self.tokens[self.current - 1]
     
     def consume(self, token_type: TokenType, message: str) -> Token:
         if self.check(token_type):
             return self.advance()
-        raise SyntaxError(f"{message} at line {self.peek().line}")
+        
+        raise self.error(self.peek(), message)
     
-    def expression_statement(self) -> ASTNode:
-        expr = self.expression()
-        self.consume(TokenType.SEMICOLON, "Expect ';' after expression")
-        return expr
+    def error(self, token: Token, message: str):
+        error_msg = f"{self.filename}:{token.line}:{token.column}: {message}"
+        self.errors.append(error_msg)
+        return ParseError(error_msg)
     
-    def return_statement(self) -> ASTNode:
-        value = None
-        if not self.check(TokenType.SEMICOLON):
-            value = self.expression()
-        self.consume(TokenType.SEMICOLON, "Expect ';' after return value")
-        return ASTNode(NodeType.RETURN, children=[value] if value else [])
-    
-    def import_statement(self) -> ASTNode:
-        module = self.expression()
-        self.consume(TokenType.SEMICOLON, "Expect ';' after import")
-        return ASTNode(NodeType.IMPORT, children=[module])
-    
-    def try_catch_statement(self) -> ASTNode:
-        self.consume(TokenType.LBRACE, "Expect '{' after 'try'")
-        try_block = self.block()
+    def synchronize(self):
+        self.advance()
         
-        self.consume(TokenType.CATCH, "Expect 'catch' after try block")
-        error_var = self.consume(TokenType.IDENTIFIER, "Expect error variable name").value
-        
-        self.consume(TokenType.LBRACE, "Expect '{' after catch")
-        catch_block = self.block()
-        
-        return ASTNode(NodeType.TRY_CATCH, value=error_var, children=[try_block, catch_block])
-    
-    def throw_statement(self) -> ASTNode:
-        value = self.expression()
-        self.consume(TokenType.SEMICOLON, "Expect ';' after throw")
-        return ASTNode(NodeType.CALL, value="throw", children=[value])
-    
-    def class_statement(self) -> ASTNode:
-        name = self.consume(TokenType.IDENTIFIER, "Expect class name").value
-        
-        self.consume(TokenType.LBRACE, "Expect '{' after class name")
-        
-        methods = []
-        while not self.check(TokenType.RBRACE) and not self.is_at_end():
-            if not self.match(TokenType.FUNCTION):
-                raise SyntaxError("Expect method declaration in class")
-            methods.append(self.function_statement())
-        
-        self.consume(TokenType.RBRACE, "Expect '}' after class body")
-        
-        # Create a dictionary of methods
-        methods_dict = {}
-        for method in methods:
-            methods_dict[method.value] = method
-        
-        return ASTNode(NodeType.ASSIGNMENT, children=[
-            ASTNode(NodeType.IDENTIFIER, value=name),
-            ASTNode(NodeType.DICT, children=[
-                ASTNode(NodeType.STRING, value=key) if i % 2 == 0 else value
-                for i, (key, value) in enumerate(methods_dict.items())
-                for item in [key, value]
-            ])
-        ])
-    
-    def assignment_statement(self) -> ASTNode:
-        name = self.consume(TokenType.IDENTIFIER, "Expect variable name").value
-        token = self.consume(TokenType.ASSIGN, "Expect '=' after variable name")
-        value = self.expression()
-        self.consume(TokenType.SEMICOLON, "Expect ';' after assignment")
-        
-        return ASTNode(NodeType.ASSIGNMENT, value=token.type, children=[
-            ASTNode(NodeType.IDENTIFIER, value=name),
-            value
-        ])
+        while not self.is_at_end():
+            if self.previous().type == TokenType.SEMICOLON:
+                return
+            
+            if self.peek().type in [
+                TokenType.CLASS, TokenType.FUNC, TokenType.LET,
+                TokenType.CONST, TokenType.FOR, TokenType.IF,
+                TokenType.WHILE, TokenType.RETURN
+            ]:
+                return
+            
+            self.advance()
 
-# ==================== RUNTIME ====================
-class NouhaRuntimeError(Exception):
-    def __init__(self, message: str, line: int = None):
-        super().__init__(message)
-        self.message = message
-        self.line = line
+class ParseError(Exception):
+    pass
 
-class Environment:
-    def __init__(self, parent: 'Environment' = None):
-        self.values = {}
+# ==================== ADVANCED INTERPRETER ====================
+class Scope:
+    def __init__(self, parent=None, name="global"):
         self.parent = parent
+        self.name = name
+        self.variables = {}
+        self.constants = set()
+        self.types = {}
+        self.functions = {}
+        self.classes = {}
     
-    def define(self, name: str, value: Any):
-        self.values[name] = value
+    def declare(self, name: str, value, is_const=False):
+        if name in self.variables:
+            raise NouhaRuntimeError(f"Variable '{name}' already declared in this scope")
+        
+        self.variables[name] = value
+        if is_const:
+            self.constants.add(name)
     
-    def get(self, name: str) -> Any:
-        if name in self.values:
-            return self.values[name]
-        elif self.parent:
-            return self.parent.get(name)
-        else:
-            raise NouhaRuntimeError(f"Undefined variable '{name}'")
-    
-    def assign(self, name: str, value: Any):
-        if name in self.values:
-            self.values[name] = value
+    def assign(self, name: str, value):
+        if name in self.constants:
+            raise NouhaRuntimeError(f"Cannot reassign constant '{name}'")
+        
+        if name in self.variables:
+            self.variables[name] = value
         elif self.parent:
             self.parent.assign(name, value)
         else:
             raise NouhaRuntimeError(f"Undefined variable '{name}'")
     
-    def get_at(self, distance: int, name: str) -> Any:
-        return self.ancestor(distance).values.get(name)
+    def get(self, name: str):
+        if name in self.variables:
+            return self.variables[name]
+        elif self.parent:
+            return self.parent.get(name)
+        else:
+            raise NouhaRuntimeError(f"Undefined variable '{name}'")
     
-    def assign_at(self, distance: int, name: str, value: Any):
-        self.ancestor(distance).values[name] = value
-    
-    def ancestor(self, distance: int) -> 'Environment':
-        env = self
-        for _ in range(distance):
-            env = env.parent
-        return env
+    def has(self, name: str) -> bool:
+        if name in self.variables:
+            return True
+        elif self.parent:
+            return self.parent.has(name)
+        return False
 
 class NouhaFunction:
-    def __init__(self, declaration: ASTNode, closure: Environment, is_initializer: bool = False):
-        self.declaration = declaration
+    def __init__(self, name: str, params: List[Dict], body: ASTNode, closure: Scope, is_async=False):
+        self.name = name
+        self.params = params
+        self.body = body
         self.closure = closure
-        self.is_initializer = is_initializer
-    
-    def call(self, interpreter: 'Interpreter', arguments: List[Any]) -> Any:
-        env = Environment(self.closure)
-        
-        # Bind parameters
-        for i, param in enumerate(self.declaration.children[1:]):
-            env.define(param.value, arguments[i] if i < len(arguments) else None)
-        
-        try:
-            interpreter.execute_block(self.declaration.children[0].children, env)
-        except ReturnException as ret:
-            if self.is_initializer:
-                return self.closure.get_at(0, "this")
-            return ret.value
-        
-        if self.is_initializer:
-            return self.closure.get_at(0, "this")
-        return None
+        self.is_async = is_async
     
     def arity(self) -> int:
-        return len(self.declaration.children) - 1
+        return len([p for p in self.params if "default" not in p])
+    
+    def call(self, interpreter, arguments: List, this=None):
+        # Create new scope for function execution
+        function_scope = Scope(parent=self.closure, name=f"function:{self.name}")
+        
+        # Bind 'this' if provided
+        if this is not None:
+            function_scope.declare("this", this)
+        
+        # Bind arguments to parameters
+        for i, param in enumerate(self.params):
+            param_name = param["name"]
+            
+            if i < len(arguments):
+                value = arguments[i]
+            elif "default" in param:
+                # Evaluate default value
+                value = interpreter.evaluate(param["default"], function_scope)
+            else:
+                raise NouhaRuntimeError(f"Missing argument for parameter '{param_name}'")
+            
+            function_scope.declare(param_name, value)
+        
+        # Execute function body
+        try:
+            result = interpreter.execute(self.body, function_scope)
+            
+            # Handle async functions
+            if self.is_async:
+                async def async_wrapper():
+                    return result
+                return async_wrapper()
+            
+            return result
+        except ReturnException as ret:
+            return ret.value
+    
+    def __repr__(self):
+        return f"<NouhaFunction {self.name}>"
+
+class NouhaClass:
+    def __init__(self, name: str, superclass=None, interfaces=None):
+        self.name = name
+        self.superclass = superclass
+        self.interfaces = interfaces or []
+        self.methods = {}
+        self.static_methods = {}
+        self.fields = {}
+    
+    def add_method(self, name: str, method: NouhaFunction):
+        self.methods[name] = method
+    
+    def add_static_method(self, name: str, method: NouhaFunction):
+        self.static_methods[name] = method
+    
+    def add_field(self, name: str, value):
+        self.fields[name] = value
+    
+    def instantiate(self, interpreter, arguments: List):
+        instance = NouhaObject(self)
+        
+        # Initialize fields
+        for name, value in self.fields.items():
+            instance.fields[name] = value
+        
+        # Call constructor if exists
+        if "constructor" in self.methods:
+            constructor = self.methods["constructor"]
+            constructor.call(interpreter, arguments, this=instance)
+        
+        return instance
+    
+    def __repr__(self):
+        return f"<NouhaClass {self.name}>"
+
+class NouhaObject:
+    def __init__(self, klass: NouhaClass):
+        self.klass = klass
+        self.fields = {}
+    
+    def get(self, name: str):
+        if name in self.fields:
+            return self.fields[name]
+        
+        if name in self.klass.methods:
+            # Bind method to this instance
+            method = self.klass.methods[name]
+            return BoundMethod(self, method)
+        
+        if name in self.klass.static_methods:
+            return self.klass.static_methods[name]
+        
+        raise NouhaRuntimeError(f"Property '{name}' not found on object of type {self.klass.name}")
+    
+    def set(self, name: str, value):
+        self.fields[name] = value
+    
+    def __repr__(self):
+        return f"<{self.klass.name} object at {id(self)}>"
+
+class BoundMethod:
+    def __init__(self, instance: NouhaObject, method: NouhaFunction):
+        self.instance = instance
+        self.method = method
+    
+    def call(self, interpreter, arguments: List):
+        return self.method.call(interpreter, arguments, this=self.instance)
+    
+    def __repr__(self):
+        return f"<BoundMethod {self.method.name} of {self.instance}>"
 
 class ReturnException(Exception):
-    def __init__(self, value: Any):
+    def __init__(self, value):
         self.value = value
 
-class Interpreter:
+class BreakException(Exception):
+    pass
+
+class ContinueException(Exception):
+    pass
+
+class AdvancedInterpreter:
     def __init__(self):
-        self.globals = Environment()
-        self.environment = self.globals
-        self.locals = {}
+        self.global_scope = Scope(name="global")
+        self.current_scope = self.global_scope
+        self.modules = {}
+        self.builtins = self._init_builtins()
         
-        # Built-in functions
-        self.globals.define("print", self.make_native_fn(self._print, 1))
-        self.globals.define("input", self.make_native_fn(self._input, 0))
-        self.globals.define("len", self.make_native_fn(self._len, 1))
-        self.globals.define("type", self.make_native_fn(self._type, 1))
-        self.globals.define("int", self.make_native_fn(self._to_int, 1))
-        self.globals.define("float", self.make_native_fn(self._to_float, 1))
-        self.globals.define("str", self.make_native_fn(self._to_string, 1))
-        self.globals.define("list", self.make_native_fn(self._list, -1))
-        self.globals.define("dict", self.make_native_fn(self._dict, -1))
-        self.globals.define("append", self.make_native_fn(self._append, 2))
-        self.globals.define("pop", self.make_native_fn(self._pop, 1))
-        self.globals.define("insert", self.make_native_fn(self._insert, 3))
-        self.globals.define("range", self.make_native_fn(self._range, 3))
+        # Runtime state
+        self.debug_mode = False
+        self.max_recursion_depth = 1000
+        self.recursion_depth = 0
+        self.call_stack = []
         
-        # Math functions
-        self.globals.define("math", {
-            "sqrt": math.sqrt,
-            "pow": math.pow,
+        # Initialize standard library
+        self._init_stdlib()
+    
+    def _init_builtins(self):
+        """Initialize built-in functions and objects"""
+        builtins = {}
+        
+        # Console I/O
+        builtins["print"] = self._builtin_print
+        builtins["println"] = self._builtin_println
+        builtins["input"] = self._builtin_input
+        builtins["format"] = self._builtin_format
+        
+        # Type conversion
+        builtins["int"] = self._builtin_int
+        builtins["float"] = self._builtin_float
+        builtins["str"] = self._builtin_str
+        builtins["bool"] = self._builtin_bool
+        builtins["list"] = self._builtin_list
+        builtins["dict"] = self._builtin_dict
+        builtins["tuple"] = self._builtin_tuple
+        builtins["set"] = self._builtin_set
+        
+        # Type checking
+        builtins["type"] = self._builtin_type
+        builtins["isinstance"] = self._builtin_isinstance
+        
+        # Math
+        builtins["abs"] = abs
+        builtins["round"] = round
+        builtins["min"] = min
+        builtins["max"] = max
+        builtins["sum"] = sum
+        builtins["len"] = len
+        
+        # String operations
+        builtins["lower"] = lambda s: s.lower()
+        builtins["upper"] = lambda s: s.upper()
+        builtins["strip"] = lambda s: s.strip()
+        builtins["split"] = lambda s, sep=None: s.split(sep)
+        builtins["join"] = lambda sep, items: sep.join(items)
+        builtins["replace"] = lambda s, old, new: s.replace(old, new)
+        
+        # List operations
+        builtins["append"] = lambda lst, item: lst.append(item) or lst
+        builtins["pop"] = lambda lst, idx=-1: lst.pop(idx)
+        builtins["insert"] = lambda lst, idx, item: lst.insert(idx, item) or lst
+        builtins["remove"] = lambda lst, item: lst.remove(item) or lst
+        builtins["sort"] = lambda lst: sorted(lst)
+        builtins["reverse"] = lambda lst: list(reversed(lst))
+        
+        # Dictionary operations
+        builtins["keys"] = lambda d: list(d.keys())
+        builtins["values"] = lambda d: list(d.values())
+        builtins["items"] = lambda d: list(d.items())
+        
+        # Functional programming
+        builtins["map"] = self._builtin_map
+        builtins["filter"] = self._builtin_filter
+        builtins["reduce"] = self._builtin_reduce
+        
+        # File I/O
+        builtins["open"] = self._builtin_open
+        builtins["read"] = self._builtin_read
+        builtins["write"] = self._builtin_write
+        
+        # System
+        builtins["exit"] = self._builtin_exit
+        builtins["time"] = time.time
+        builtins["sleep"] = time.sleep
+        
+        # Advanced
+        builtins["range"] = range
+        builtins["enumerate"] = enumerate
+        builtins["zip"] = zip
+        builtins["any"] = any
+        builtins["all"] = all
+        builtins["sorted"] = sorted
+        
+        return builtins
+    
+    def _init_stdlib(self):
+        """Initialize standard library modules"""
+        
+        # Math module
+        math_module = {
+            "pi": math.pi,
+            "e": math.e,
             "sin": math.sin,
             "cos": math.cos,
             "tan": math.tan,
+            "asin": math.asin,
+            "acos": math.acos,
+            "atan": math.atan,
+            "atan2": math.atan2,
+            "sinh": math.sinh,
+            "cosh": math.cosh,
+            "tanh": math.tanh,
             "log": math.log,
             "log10": math.log10,
-            "pi": math.pi,
-            "e": math.e,
-            "abs": abs,
-            "round": round,
+            "log2": math.log2,
+            "exp": math.exp,
+            "sqrt": math.sqrt,
             "ceil": math.ceil,
             "floor": math.floor,
-        })
-    
-    def make_native_fn(self, func: Callable, arity: int) -> Any:
-        def wrapper(*args):
-            return func(*args)
-        wrapper.arity = arity
-        wrapper.call = lambda interpreter, args: func(*args)
-        return wrapper
-    
-    def _print(self, value: Any) -> None:
-        print(self.stringify(value))
-        return None
-    
-    def _input(self, prompt: str = "") -> str:
-        return input(prompt)
-    
-    def _len(self, value: Any) -> int:
-        if isinstance(value, (list, dict, str)):
-            return len(value)
-        raise NouhaRuntimeError(f"Object of type '{type(value).__name__}' has no length")
-    
-    def _type(self, value: Any) -> str:
-        if value is None:
-            return "null"
-        elif isinstance(value, bool):
-            return "bool"
-        elif isinstance(value, int):
-            return "int"
-        elif isinstance(value, float):
-            return "float"
-        elif isinstance(value, str):
-            return "str"
-        elif isinstance(value, list):
-            return "list"
-        elif isinstance(value, dict):
-            return "dict"
-        elif isinstance(value, NouhaFunction):
-            return "function"
-        else:
-            return "object"
-    
-    def _to_int(self, value: Any) -> int:
-        try:
-            return int(value)
-        except ValueError:
-            raise NouhaRuntimeError(f"Cannot convert '{value}' to integer")
-    
-    def _to_float(self, value: Any) -> float:
-        try:
-            return float(value)
-        except ValueError:
-            raise NouhaRuntimeError(f"Cannot convert '{value}' to float")
-    
-    def _to_string(self, value: Any) -> str:
-        return self.stringify(value)
-    
-    def _list(self, *args) -> list:
-        return list(args)
-    
-    def _dict(self, *args) -> dict:
-        if len(args) % 2 != 0:
-            raise NouhaRuntimeError("Dictionary requires an even number of arguments")
-        result = {}
-        for i in range(0, len(args), 2):
-            key = args[i]
-            if not isinstance(key, (str, int, float, bool)):
-                raise NouhaRuntimeError("Dictionary keys must be strings, numbers, or booleans")
-            result[key] = args[i + 1]
-        return result
-    
-    def _append(self, lst: list, value: Any) -> list:
-        if not isinstance(lst, list):
-            raise NouhaRuntimeError("First argument must be a list")
-        lst.append(value)
-        return lst
-    
-    def _pop(self, lst: list, index: int = -1) -> Any:
-        if not isinstance(lst, list):
-            raise NouhaRuntimeError("Argument must be a list")
-        return lst.pop(index)
-    
-    def _insert(self, lst: list, index: int, value: Any) -> list:
-        if not isinstance(lst, list):
-            raise NouhaRuntimeError("First argument must be a list")
-        lst.insert(index, value)
-        return lst
-    
-    def _range(self, start: int, stop: int, step: int = 1) -> list:
-        return list(range(start, stop, step))
-    
-    def interpret(self, source: str):
-        try:
-            # Tokenize
-            tokenizer = Tokenizer(source)
-            tokens = tokenizer.tokenize()
-            
-            # Parse
-            parser = Parser(tokens)
-            statements = parser.parse()
-            
-            # Execute
-            self.execute(statements)
-        except SyntaxError as e:
-            self.report_error(str(e))
-        except NouhaRuntimeError as e:
-            self.report_error(f"Runtime error: {e.message}")
-        except Exception as e:
-            self.report_error(f"Unexpected error: {e}")
-    
-    def execute(self, stmt: ASTNode):
-        if stmt.type == NodeType.BLOCK:
-            self.execute_block(stmt.children, Environment(self.environment))
-        elif stmt.type == NodeType.IF:
-            self.execute_if(stmt)
-        elif stmt.type == NodeType.WHILE:
-            self.execute_while(stmt)
-        elif stmt.type == NodeType.FOR:
-            self.execute_for(stmt)
-        elif stmt.type == NodeType.FUNCTION:
-            self.execute_function(stmt)
-        elif stmt.type == NodeType.RETURN:
-            self.execute_return(stmt)
-        elif stmt.type == NodeType.IMPORT:
-            self.execute_import(stmt)
-        elif stmt.type == NodeType.TRY_CATCH:
-            self.execute_try_catch(stmt)
-        elif stmt.type == NodeType.ASSIGNMENT:
-            self.execute_assignment(stmt)
-        elif stmt.type == NodeType.CALL and stmt.value == "throw":
-            self.execute_throw(stmt)
-        else:
-            self.evaluate(stmt)
-    
-    def execute_block(self, statements: List[ASTNode], env: Environment):
-        previous = self.environment
-        try:
-            self.environment = env
-            for stmt in statements:
-                self.execute(stmt)
-        finally:
-            self.environment = previous
-    
-    def execute_if(self, stmt: ASTNode):
-        # stmt.children: [condition, then_branch, else_branch, elif_cond1, elif_branch1, ...]
-        condition = self.evaluate(stmt.children[0])
+            "trunc": math.trunc,
+            "degrees": math.degrees,
+            "radians": math.radians,
+            "hypot": math.hypot,
+            "pow": math.pow,
+            "fabs": math.fabs,
+            "factorial": math.factorial,
+            "gcd": math.gcd,
+            "isclose": math.isclose,
+            "isfinite": math.isfinite,
+            "isinf": math.isinf,
+            "isnan": math.isnan,
+            "modf": math.modf,
+        }
+        self.modules["math"] = math_module
         
-        if self.is_truthy(condition):
-            self.execute(stmt.children[1])
-            return
+        # Random module
+        random_module = {
+            "random": random.random,
+            "uniform": random.uniform,
+            "randint": random.randint,
+            "randrange": random.randrange,
+            "choice": random.choice,
+            "choices": random.choices,
+            "shuffle": random.shuffle,
+            "sample": random.sample,
+            "gauss": random.gauss,
+            "normalvariate": random.normalvariate,
+            "seed": random.seed,
+        }
+        self.modules["random"] = random_module
         
-        # Check elif branches
-        i = 3  # Start at first elif condition
-        while i < len(stmt.children):
-            elif_cond = self.evaluate(stmt.children[i])
-            if self.is_truthy(elif_cond):
-                self.execute(stmt.children[i + 1])
-                return
-            i += 2
+        # Time module
+        time_module = {
+            "time": time.time,
+            "sleep": time.sleep,
+            "ctime": time.ctime,
+            "gmtime": time.gmtime,
+            "localtime": time.localtime,
+            "mktime": time.mktime,
+            "strftime": time.strftime,
+            "strptime": time.strptime,
+            "monotonic": time.monotonic,
+            "perf_counter": time.perf_counter,
+            "process_time": time.process_time,
+        }
+        self.modules["time"] = time_module
         
-        # Execute else branch if exists
-        if stmt.children[2]:
-            self.execute(stmt.children[2])
-    
-    def execute_while(self, stmt: ASTNode):
-        while self.is_truthy(self.evaluate(stmt.children[0])):
-            self.execute(stmt.children[1])
-    
-    def execute_for(self, stmt: ASTNode):
-        if stmt.children[0]:
-            self.execute(stmt.children[0])
-        
-        while True:
-            if stmt.children[1]:
-                condition = self.evaluate(stmt.children[1])
-                if not self.is_truthy(condition):
-                    break
-            
-            self.execute(stmt.children[3])
-            
-            if stmt.children[2]:
-                self.evaluate(stmt.children[2])
-    
-    def execute_function(self, stmt: ASTNode):
-        func = NouhaFunction(stmt, self.environment)
-        self.environment.define(stmt.value, func)
-    
-    def execute_return(self, stmt: ASTNode):
-        value = None
-        if stmt.children:
-            value = self.evaluate(stmt.children[0])
-        raise ReturnException(value)
-    
-    def execute_import(self, stmt: ASTNode):
-        module_name = self.evaluate(stmt.children[0])
-        
-        # Built-in modules
-        if module_name == "math":
-            self.environment.define("math", self.globals.get("math"))
-        elif module_name == "time":
-            self.environment.define("time", {
-                "now": time.time,
-                "sleep": time.sleep,
-                "ctime": time.ctime,
-                "strftime": time.strftime,
-            })
-        elif module_name == "random":
-            self.environment.define("random", {
-                "randint": random.randint,
-                "choice": random.choice,
-                "random": random.random,
-                "shuffle": random.shuffle,
-                "uniform": random.uniform,
-            })
-        elif module_name == "os":
-            self.environment.define("os", {
-                "getcwd": os.getcwd,
-                "listdir": os.listdir,
+        # OS module
+        os_module = {
+            "name": os.name,
+            "getcwd": os.getcwd,
+            "listdir": os.listdir,
+            "mkdir": os.mkdir,
+            "rmdir": os.rmdir,
+            "remove": os.remove,
+            "rename": os.rename,
+            "path": {
+                "exists": os.path.exists,
                 "isfile": os.path.isfile,
                 "isdir": os.path.isdir,
-                "exists": os.path.exists,
-            })
-        elif module_name == "json":
-            self.environment.define("json", {
-                "loads": json.loads,
-                "dumps": json.dumps,
-            })
-        else:
-            # Try to load from file
-            filename = f"{module_name}.nh"
-            if os.path.exists(filename):
-                with open(filename, 'r') as f:
-                    source = f.read()
-                # Execute in a new environment
-                previous_env = self.environment
-                module_env = Environment(self.globals)
-                self.environment = module_env
-                self.interpret(source)
-                self.environment = previous_env
-                
-                # Export all defined symbols
-                for name in module_env.values:
-                    self.environment.define(name, module_env.values[name])
-            else:
-                raise NouhaRuntimeError(f"Module '{module_name}' not found")
-    
-    def execute_try_catch(self, stmt: ASTNode):
-        try:
-            self.execute(stmt.children[0])
-        except Exception as e:
-            error_env = Environment(self.environment)
-            error_env.define(stmt.value, str(e))
-            previous = self.environment
-            self.environment = error_env
-            self.execute(stmt.children[1])
-            self.environment = previous
-    
-    def execute_assignment(self, stmt: ASTNode):
-        value = self.evaluate(stmt.children[1])
+                "join": os.path.join,
+                "split": os.path.split,
+                "splitext": os.path.splitext,
+                "basename": os.path.basename,
+                "dirname": os.path.dirname,
+                "abspath": os.path.abspath,
+                "realpath": os.path.realpath,
+                "getsize": os.path.getsize,
+                "getmtime": os.path.getmtime,
+            }
+        }
+        self.modules["os"] = os_module
         
-        if stmt.children[0].type == NodeType.IDENTIFIER:
-            var_name = stmt.children[0].value
+        # JSON module
+        self.modules["json"] = {
+            "loads": json.loads,
+            "dumps": json.dumps,
+        }
+        
+        # Collections module
+        self.modules["collections"] = {
+            "Counter": collections.Counter,
+            "defaultdict": collections.defaultdict,
+            "OrderedDict": collections.OrderedDict,
+            "deque": collections.deque,
+            "namedtuple": collections.namedtuple,
+        }
+        
+        # Itertools module
+        self.modules["itertools"] = {
+            "chain": itertools.chain,
+            "combinations": itertools.combinations,
+            "permutations": itertools.permutations,
+            "product": itertools.product,
+            "cycle": itertools.cycle,
+            "repeat": itertools.repeat,
+        }
+        
+        # Statistics module
+        self.modules["statistics"] = {
+            "mean": statistics.mean,
+            "median": statistics.median,
+            "mode": statistics.mode,
+            "stdev": statistics.stdev,
+            "variance": statistics.variance,
+        }
+        
+        # CSV module
+        self.modules["csv"] = {
+            "reader": csv.reader,
+            "writer": csv.writer,
+            "DictReader": csv.DictReader,
+            "DictWriter": csv.DictWriter,
+        }
+        
+        # Hashlib module
+        self.modules["hashlib"] = {
+            "md5": hashlib.md5,
+            "sha1": hashlib.sha1,
+            "sha256": hashlib.sha256,
+            "sha512": hashlib.sha512,
+        }
+        
+        # Datetime module
+        self.modules["datetime"] = {
+            "datetime": datetime.datetime,
+            "date": datetime.date,
+            "time": datetime.time,
+            "timedelta": datetime.timedelta,
+        }
+        
+        # SQLite module
+        self.modules["sqlite3"] = {
+            "connect": sqlite3.connect,
+            "Connection": sqlite3.Connection,
+            "Cursor": sqlite3.Cursor,
+        }
+        
+        # HTTP module
+        self.modules["http"] = {
+            "request": urllib.request,
+            "parse": urllib.parse,
+        }
+    
+    def interpret(self, source: str, filename: str = "<string>"):
+        """Main interpretation entry point"""
+        try:
+            # Lexical analysis
+            lexer = AdvancedLexer(source, filename)
+            tokens = lexer.tokenize()
             
-            if stmt.value == TokenType.PLUS_EQ:
-                current = self.environment.get(var_name)
-                value = self.add(current, value)
-            elif stmt.value == TokenType.MINUS_EQ:
-                current = self.environment.get(var_name)
-                value = self.subtract(current, value)
-            elif stmt.value == TokenType.MULT_EQ:
-                current = self.environment.get(var_name)
-                value = self.multiply(current, value)
-            elif stmt.value == TokenType.DIV_EQ:
-                current = self.environment.get(var_name)
-                value = self.divide(current, value)
+            if lexer.errors:
+                for error in lexer.errors:
+                    print(f"Lexer Error: {error}", file=sys.stderr)
+                return False
             
-            self.environment.assign(var_name, value)
+            # Parsing
+            parser = Parser(tokens, filename)
+            ast = parser.parse()
+            
+            if parser.errors:
+                for error in parser.errors:
+                    print(f"Parser Error: {error}", file=sys.stderr)
+                return False
+            
+            # Execution
+            result = self.execute(ast, self.current_scope)
+            
+            if self.debug_mode:
+                print(f"Execution completed. Result: {result}")
+            
+            return True
+            
+        except NouhaRuntimeError as e:
+            print(f"Runtime Error: {e}", file=sys.stderr)
+            if self.debug_mode and self.call_stack:
+                print("Call stack:", file=sys.stderr)
+                for frame in reversed(self.call_stack):
+                    print(f"  at {frame}", file=sys.stderr)
+            return False
+        except Exception as e:
+            print(f"Internal Error: {e}", file=sys.stderr)
+            if self.debug_mode:
+                import traceback
+                traceback.print_exc()
+            return False
+    
+    def execute(self, node: ASTNode, scope: Scope):
+        """Execute an AST node"""
+        if self.recursion_depth > self.max_recursion_depth:
+            raise NouhaRuntimeError("Maximum recursion depth exceeded")
+        
+        self.recursion_depth += 1
+        self.call_stack.append(f"{node.node_type.name} at line {node.line}")
+        
+        try:
+            result = self._execute_node(node, scope)
+            return result
+        finally:
+            self.call_stack.pop()
+            self.recursion_depth -= 1
+    
+    def _execute_node(self, node: ASTNode, scope: Scope):
+        """Dispatch execution based on node type"""
+        handler_name = f"_execute_{node.node_type.name.lower()}"
+        handler = getattr(self, handler_name, None)
+        
+        if handler:
+            return handler(node, scope)
         else:
-            raise NouhaRuntimeError("Invalid assignment target")
+            raise NouhaRuntimeError(f"No handler for node type: {node.node_type.name}")
     
-    def execute_throw(self, stmt: ASTNode):
-        value = self.evaluate(stmt.children[0])
-        raise NouhaRuntimeError(str(value))
+    def _execute_program(self, node: ASTNode, scope: Scope):
+        """Execute a program (list of statements)"""
+        result = None
+        for child in node.children:
+            result = self.execute(child, scope)
+        return result
     
-    def evaluate(self, expr: ASTNode) -> Any:
-        if expr is None:
+    def _execute_block(self, node: ASTNode, scope: Scope):
+        """Execute a block of statements"""
+        block_scope = Scope(parent=scope, name="block")
+        result = None
+        
+        for child in node.children:
+            result = self.execute(child, block_scope)
+        
+        return result
+    
+    def _execute_statement(self, node: ASTNode, scope: Scope):
+        """Execute a single statement"""
+        if node.value == "error":
             return None
         
-        if expr.type == NodeType.NUMBER:
-            return expr.value
-        elif expr.type == NodeType.STRING:
-            return expr.value
-        elif expr.type == NodeType.BOOLEAN:
-            return expr.value
-        elif expr.type == NodeType.IDENTIFIER:
-            if expr.value is None:
-                return None
-            return self.environment.get(expr.value)
-        elif expr.type == NodeType.BINARY_OP:
-            left = self.evaluate(expr.children[0])
-            right = self.evaluate(expr.children[1])
-            
-            if expr.value == TokenType.PLUS:
-                return self.add(left, right)
-            elif expr.value == TokenType.MINUS:
-                return self.subtract(left, right)
-            elif expr.value == TokenType.MULTIPLY:
-                return self.multiply(left, right)
-            elif expr.value == TokenType.DIVIDE:
-                return self.divide(left, right)
-            elif expr.value == TokenType.POWER:
-                return self.power(left, right)
-            elif expr.value == TokenType.MODULO:
-                return self.modulo(left, right)
-            elif expr.value == TokenType.EQ:
-                return self.is_equal(left, right)
-            elif expr.value == TokenType.NEQ:
-                return not self.is_equal(left, right)
-            elif expr.value == TokenType.LT:
-                return self.less_than(left, right)
-            elif expr.value == TokenType.GT:
-                return self.greater_than(left, right)
-            elif expr.value == TokenType.LTE:
-                return self.less_than_equal(left, right)
-            elif expr.value == TokenType.GTE:
-                return self.greater_than_equal(left, right)
-            elif expr.value == TokenType.AND:
-                return self.is_truthy(left) and self.is_truthy(right)
-            elif expr.value == TokenType.OR:
-                return self.is_truthy(left) or self.is_truthy(right)
-        elif expr.type == NodeType.UNARY_OP:
-            right = self.evaluate(expr.children[0])
-            
-            if expr.value == TokenType.NOT:
-                return not self.is_truthy(right)
-            elif expr.value == TokenType.MINUS:
-                if not isinstance(right, (int, float)):
-                    raise NouhaRuntimeError("Operand must be a number")
-                return -right
-        elif expr.type == NodeType.CALL:
-            callee = self.evaluate(expr.children[0])
-            
-            arguments = []
-            for arg in expr.children[1:]:
-                arguments.append(self.evaluate(arg))
-            
-            if not callable(callee) and not hasattr(callee, 'call'):
-                if isinstance(callee, dict) and len(arguments) == 1 and arguments[0] in callee:
-                    return callee[arguments[0]]
-                raise NouhaRuntimeError("Can only call functions and classes")
-            
-            if hasattr(callee, 'call'):
-                if callee.arity() >= 0 and len(arguments) != callee.arity():
-                    raise NouhaRuntimeError(f"Expected {callee.arity()} arguments but got {len(arguments)}")
-                return callee.call(self, arguments)
-            else:
-                return callee(*arguments)
-        elif expr.type == NodeType.LIST:
-            elements = []
-            for child in expr.children:
-                elements.append(self.evaluate(child))
-            return elements
-        elif expr.type == NodeType.DICT:
-            result = {}
-            for i in range(0, len(expr.children), 2):
-                key = self.evaluate(expr.children[i])
-                value = self.evaluate(expr.children[i + 1])
-                if not isinstance(key, (str, int, float, bool)):
-                    raise NouhaRuntimeError("Dictionary keys must be strings, numbers, or booleans")
-                result[key] = value
-            return result
-        elif expr.type == NodeType.INDEX:
-            obj = self.evaluate(expr.children[0])
-            
-            if len(expr.children) == 2:
-                # List/Dict indexing
-                index = self.evaluate(expr.children[1])
-                
-                if isinstance(obj, list):
-                    if not isinstance(index, int):
-                        raise NouhaRuntimeError("List index must be an integer")
-                    if index < 0 or index >= len(obj):
-                        raise NouhaRuntimeError("List index out of bounds")
-                    return obj[index]
-                elif isinstance(obj, dict):
-                    if index not in obj:
-                        return None
-                    return obj[index]
-                elif isinstance(obj, str):
-                    if not isinstance(index, int):
-                        raise NouhaRuntimeError("String index must be an integer")
-                    if index < 0 or index >= len(obj):
-                        raise NouhaRuntimeError("String index out of bounds")
-                    return obj[index]
-                else:
-                    raise NouhaRuntimeError("Cannot index this object type")
-            else:
-                # Object property access
-                if not isinstance(obj, dict):
-                    raise NouhaRuntimeError("Cannot access properties on non-object")
-                if expr.value not in obj:
-                    return None
-                return obj[expr.value]
+        if node.children:
+            return self.execute(node.children[0], scope)
         
         return None
     
-    def add(self, left: Any, right: Any) -> Any:
+    def _execute_assignment(self, node: ASTNode, scope: Scope):
+        """Execute variable assignment"""
+        if isinstance(node.value, dict) and "name" in node.value:
+            # Variable declaration/assignment
+            name = node.value["name"]
+            is_const = node.value.get("const", False)
+            
+            if node.children:
+                value = self.execute(node.children[0], scope)
+            else:
+                value = None
+            
+            scope.declare(name, value, is_const=is_const)
+            return value
+        
+        elif isinstance(node.value, dict) and "operator" in node.value:
+            # Assignment with operator (e.g., +=, -=)
+            operator = node.value["operator"]
+            target_name = node.value.get("name")
+            
+            if target_name:
+                # Simple variable assignment
+                old_value = scope.get(target_name)
+                new_value = self.execute(node.children[0], scope)
+                
+                if operator == TokenType.ASSIGN:
+                    result = new_value
+                elif operator == TokenType.PLUS_ASSIGN:
+                    result = self._add(old_value, new_value)
+                elif operator == TokenType.MINUS_ASSIGN:
+                    result = self._subtract(old_value, new_value)
+                elif operator == TokenType.MULT_ASSIGN:
+                    result = self._multiply(old_value, new_value)
+                elif operator == TokenType.DIV_ASSIGN:
+                    result = self._divide(old_value, new_value)
+                elif operator == TokenType.MOD_ASSIGN:
+                    result = self._modulo(old_value, new_value)
+                else:
+                    raise NouhaRuntimeError(f"Unsupported assignment operator: {operator}")
+                
+                scope.assign(target_name, result)
+                return result
+        
+        raise NouhaRuntimeError("Invalid assignment")
+    
+    def _execute_identifier(self, node: ASTNode, scope: Scope):
+        """Evaluate an identifier"""
+        name = node.value
+        
+        # Check in scope first
+        if scope.has(name):
+            return scope.get(name)
+        
+        # Check builtins
+        if name in self.builtins:
+            return self.builtins[name]
+        
+        # Check if it's a module
+        if name in self.modules:
+            return self.modules[name]
+        
+        raise NouhaRuntimeError(f"Undefined identifier: '{name}'")
+    
+    def _execute_literal(self, node: ASTNode, scope: Scope):
+        """Evaluate a literal value"""
+        return node.value
+    
+    def _execute_binary_op(self, node: ASTNode, scope: Scope):
+        """Evaluate a binary operation"""
+        left = self.execute(node.children[0], scope)
+        right = self.execute(node.children[1], scope)
+        
+        operator = node.value
+        
+        if operator == TokenType.PLUS:
+            return self._add(left, right)
+        elif operator == TokenType.MINUS:
+            return self._subtract(left, right)
+        elif operator == TokenType.MULTIPLY:
+            return self._multiply(left, right)
+        elif operator == TokenType.DIVIDE:
+            return self._divide(left, right)
+        elif operator == TokenType.MODULO:
+            return self._modulo(left, right)
+        elif operator == TokenType.POWER:
+            return self._power(left, right)
+        elif operator == TokenType.EQ:
+            return self._equal(left, right)
+        elif operator == TokenType.NEQ:
+            return not self._equal(left, right)
+        elif operator == TokenType.LT:
+            return self._less_than(left, right)
+        elif operator == TokenType.GT:
+            return self._greater_than(left, right)
+        elif operator == TokenType.LTE:
+            return self._less_than_equal(left, right)
+        elif operator == TokenType.GTE:
+            return self._greater_than_equal(left, right)
+        elif operator == TokenType.AND:
+            return self._logical_and(left, right)
+        elif operator == TokenType.OR:
+            return self._logical_or(left, right)
+        elif operator == TokenType.BIT_AND:
+            return self._bitwise_and(left, right)
+        elif operator == TokenType.BIT_OR:
+            return self._bitwise_or(left, right)
+        elif operator == TokenType.BIT_XOR:
+            return self._bitwise_xor(left, right)
+        elif operator == TokenType.LEFT_SHIFT:
+            return self._left_shift(left, right)
+        elif operator == TokenType.RIGHT_SHIFT:
+            return self._right_shift(left, right)
+        
+        raise NouhaRuntimeError(f"Unsupported binary operator: {operator}")
+    
+    def _execute_unary_op(self, node: ASTNode, scope: Scope):
+        """Evaluate a unary operation"""
+        operand = self.execute(node.children[0], scope)
+        operator = node.value
+        is_postfix = node.annotations.get("postfix", False)
+        
+        if operator == TokenType.MINUS:
+            return self._negate(operand)
+        elif operator == TokenType.NOT:
+            return self._logical_not(operand)
+        elif operator == TokenType.BIT_NOT:
+            return self._bitwise_not(operand)
+        elif operator == TokenType.INCREMENT:
+            # TODO: Handle increment with variable assignment
+            if is_postfix:
+                result = operand
+                # This would need to modify the variable
+            else:
+                result = self._add(operand, 1)
+                # This would need to modify the variable
+            return result
+        elif operator == TokenType.DECREMENT:
+            # TODO: Handle decrement with variable assignment
+            if is_postfix:
+                result = operand
+            else:
+                result = self._subtract(operand, 1)
+            return result
+        
+        raise NouhaRuntimeError(f"Unsupported unary operator: {operator}")
+    
+    def _execute_function_def(self, node: ASTNode, scope: Scope):
+        """Define a function"""
+        func_info = node.value
+        name = func_info["name"]
+        params = func_info["params"]
+        is_async = func_info["async"]
+        body = node.children[0]
+        
+        function = NouhaFunction(name, params, body, scope, is_async)
+        scope.functions[name] = function
+        
+        # Also make it available as a variable
+        scope.declare(name, function)
+        
+        return function
+    
+    def _execute_function_call(self, node: ASTNode, scope: Scope):
+        """Call a function"""
+        callee = self.execute(node.children[0], scope)
+        arguments = [self.execute(arg, scope) for arg in node.children[1:]]
+        
+        if callable(callee):
+            # Python function
+            try:
+                return callee(*arguments)
+            except Exception as e:
+                raise NouhaRuntimeError(f"Error calling function: {e}")
+        
+        elif isinstance(callee, NouhaFunction):
+            # Nouha function
+            return callee.call(self, arguments)
+        
+        elif isinstance(callee, BoundMethod):
+            # Bound method
+            return callee.call(self, arguments)
+        
+        elif hasattr(callee, '__call__'):
+            # Callable object
+            return callee(*arguments)
+        
+        else:
+            raise NouhaRuntimeError(f"'{callee}' is not callable")
+    
+    def _execute_class_def(self, node: ASTNode, scope: Scope):
+        """Define a class"""
+        class_info = node.value
+        name = class_info["name"]
+        superclass_name = class_info.get("superclass")
+        
+        # Get superclass
+        superclass = None
+        if superclass_name:
+            superclass = scope.get(superclass_name)
+            if not isinstance(superclass, NouhaClass):
+                raise NouhaRuntimeError(f"Superclass '{superclass_name}' is not a class")
+        
+        # Create class
+        klass = NouhaClass(name, superclass)
+        
+        # Execute class body
+        class_scope = Scope(parent=scope, name=f"class:{name}")
+        class_scope.declare("self", klass)  # For static methods
+        
+        for child in node.children:
+            self.execute(child, class_scope)
+        
+        # Register class
+        scope.classes[name] = klass
+        scope.declare(name, klass)
+        
+        return klass
+    
+    # ==================== HELPER METHODS ====================
+    
+    def _add(self, left, right):
+        """Addition with type checking"""
         if isinstance(left, (int, float)) and isinstance(right, (int, float)):
             return left + right
         elif isinstance(left, str) or isinstance(right, str):
@@ -1270,15 +1981,17 @@ class Interpreter:
         elif isinstance(left, list) and isinstance(right, list):
             return left + right
         else:
-            raise NouhaRuntimeError(f"Cannot add {type(left).__name__} and {type(right).__name__}")
+            raise NouhaRuntimeError(f"Cannot add {type(left)} and {type(right)}")
     
-    def subtract(self, left: Any, right: Any) -> Any:
+    def _subtract(self, left, right):
+        """Subtraction with type checking"""
         if isinstance(left, (int, float)) and isinstance(right, (int, float)):
             return left - right
         else:
-            raise NouhaRuntimeError(f"Cannot subtract {type(left).__name__} and {type(right).__name__}")
+            raise NouhaRuntimeError(f"Cannot subtract {type(left)} and {type(right)}")
     
-    def multiply(self, left: Any, right: Any) -> Any:
+    def _multiply(self, left, right):
+        """Multiplication with type checking"""
         if isinstance(left, (int, float)) and isinstance(right, (int, float)):
             return left * right
         elif isinstance(left, str) and isinstance(right, int):
@@ -1290,190 +2003,455 @@ class Interpreter:
         elif isinstance(left, int) and isinstance(right, list):
             return right * left
         else:
-            raise NouhaRuntimeError(f"Cannot multiply {type(left).__name__} and {type(right).__name__}")
+            raise NouhaRuntimeError(f"Cannot multiply {type(left)} and {type(right)}")
     
-    def divide(self, left: Any, right: Any) -> Any:
+    def _divide(self, left, right):
+        """Division with type checking"""
         if isinstance(left, (int, float)) and isinstance(right, (int, float)):
             if right == 0:
                 raise NouhaRuntimeError("Division by zero")
             return left / right
         else:
-            raise NouhaRuntimeError(f"Cannot divide {type(left).__name__} and {type(right).__name__}")
+            raise NouhaRuntimeError(f"Cannot divide {type(left)} and {type(right)}")
     
-    def power(self, left: Any, right: Any) -> Any:
-        if isinstance(left, (int, float)) and isinstance(right, (int, float)):
-            return left ** right
-        else:
-            raise NouhaRuntimeError(f"Cannot exponentiate {type(left).__name__} and {type(right).__name__}")
-    
-    def modulo(self, left: Any, right: Any) -> Any:
+    def _modulo(self, left, right):
+        """Modulo with type checking"""
         if isinstance(left, (int, float)) and isinstance(right, (int, float)):
             if right == 0:
                 raise NouhaRuntimeError("Modulo by zero")
             return left % right
         else:
-            raise NouhaRuntimeError(f"Cannot modulo {type(left).__name__} and {type(right).__name__}")
+            raise NouhaRuntimeError(f"Cannot modulo {type(left)} and {type(right)}")
     
-    def is_equal(self, left: Any, right: Any) -> bool:
+    def _power(self, left, right):
+        """Power with type checking"""
+        if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+            return left ** right
+        else:
+            raise NouhaRuntimeError(f"Cannot raise {type(left)} to power {type(right)}")
+    
+    def _equal(self, left, right):
+        """Equality comparison"""
         return left == right
     
-    def less_than(self, left: Any, right: Any) -> bool:
+    def _less_than(self, left, right):
+        """Less than comparison"""
         if isinstance(left, (int, float)) and isinstance(right, (int, float)):
             return left < right
         elif isinstance(left, str) and isinstance(right, str):
             return left < right
         else:
-            raise NouhaRuntimeError(f"Cannot compare {type(left).__name__} and {type(right).__name__}")
+            raise NouhaRuntimeError(f"Cannot compare {type(left)} and {type(right)} with <")
     
-    def greater_than(self, left: Any, right: Any) -> bool:
-        return self.less_than(right, left)
-    
-    def less_than_equal(self, left: Any, right: Any) -> bool:
-        return not self.greater_than(left, right)
-    
-    def greater_than_equal(self, left: Any, right: Any) -> bool:
-        return not self.less_than(left, right)
-    
-    def is_truthy(self, value: Any) -> bool:
-        if value is None:
-            return False
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return value != 0
-        if isinstance(value, str):
-            return len(value) > 0
-        if isinstance(value, (list, dict)):
-            return len(value) > 0
-        return True
-    
-    def stringify(self, value: Any) -> str:
-        if value is None:
-            return "null"
-        elif isinstance(value, bool):
-            return "true" if value else "false"
-        elif isinstance(value, float):
-            if value.is_integer():
-                return str(int(value))
-            return str(value)
-        elif isinstance(value, list):
-            items = [self.stringify(item) for item in value]
-            return f"[{', '.join(items)}]"
-        elif isinstance(value, dict):
-            items = [f"{self.stringify(k)}: {self.stringify(v)}" for k, v in value.items()]
-            return f"{{{', '.join(items)}}}"
+    def _greater_than(self, left, right):
+        """Greater than comparison"""
+        if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+            return left > right
+        elif isinstance(left, str) and isinstance(right, str):
+            return left > right
         else:
-            return str(value)
+            raise NouhaRuntimeError(f"Cannot compare {type(left)} and {type(right)} with >")
     
-    def report_error(self, message: str):
-        print(f"Error: {message}", file=sys.stderr)
+    def _less_than_equal(self, left, right):
+        """Less than or equal comparison"""
+        return not self._greater_than(left, right)
+    
+    def _greater_than_equal(self, left, right):
+        """Greater than or equal comparison"""
+        return not self._less_than(left, right)
+    
+    def _logical_and(self, left, right):
+        """Logical AND"""
+        return bool(left) and bool(right)
+    
+    def _logical_or(self, left, right):
+        """Logical OR"""
+        return bool(left) or bool(right)
+    
+    def _logical_not(self, operand):
+        """Logical NOT"""
+        return not bool(operand)
+    
+    def _bitwise_and(self, left, right):
+        """Bitwise AND"""
+        if isinstance(left, int) and isinstance(right, int):
+            return left & right
+        else:
+            raise NouhaRuntimeError(f"Cannot perform bitwise AND on {type(left)} and {type(right)}")
+    
+    def _bitwise_or(self, left, right):
+        """Bitwise OR"""
+        if isinstance(left, int) and isinstance(right, int):
+            return left | right
+        else:
+            raise NouhaRuntimeError(f"Cannot perform bitwise OR on {type(left)} and {type(right)}")
+    
+    def _bitwise_xor(self, left, right):
+        """Bitwise XOR"""
+        if isinstance(left, int) and isinstance(right, int):
+            return left ^ right
+        else:
+            raise NouhaRuntimeError(f"Cannot perform bitwise XOR on {type(left)} and {type(right)}")
+    
+    def _bitwise_not(self, operand):
+        """Bitwise NOT"""
+        if isinstance(operand, int):
+            return ~operand
+        else:
+            raise NouhaRuntimeError(f"Cannot perform bitwise NOT on {type(operand)}")
+    
+    def _left_shift(self, left, right):
+        """Left shift"""
+        if isinstance(left, int) and isinstance(right, int):
+            return left << right
+        else:
+            raise NouhaRuntimeError(f"Cannot left shift {type(left)} by {type(right)}")
+    
+    def _right_shift(self, left, right):
+        """Right shift"""
+        if isinstance(left, int) and isinstance(right, int):
+            return left >> right
+        else:
+            raise NouhaRuntimeError(f"Cannot right shift {type(left)} by {type(right)}")
+    
+    def _negate(self, operand):
+        """Negation"""
+        if isinstance(operand, (int, float)):
+            return -operand
+        else:
+            raise NouhaRuntimeError(f"Cannot negate {type(operand)}")
+    
+    # ==================== BUILTIN FUNCTIONS ====================
+    
+    def _builtin_print(self, *args, **kwargs):
+        """Built-in print function"""
+        sep = kwargs.get('sep', ' ')
+        end = kwargs.get('end', '\n')
+        file = kwargs.get('file', sys.stdout)
+        
+        print(*args, sep=sep, end=end, file=file)
+    
+    def _builtin_println(self, *args):
+        """Built-in println function (always newline)"""
+        print(*args)
+    
+    def _builtin_input(self, prompt=""):
+        """Built-in input function"""
+        return input(prompt)
+    
+    def _builtin_format(self, value, format_spec=""):
+        """Built-in format function"""
+        return format(value, format_spec)
+    
+    def _builtin_int(self, value, base=10):
+        """Built-in int conversion"""
+        try:
+            return int(value, base)
+        except (ValueError, TypeError):
+            raise NouhaRuntimeError(f"Cannot convert '{value}' to integer")
+    
+    def _builtin_float(self, value):
+        """Built-in float conversion"""
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            raise NouhaRuntimeError(f"Cannot convert '{value}' to float")
+    
+    def _builtin_str(self, value):
+        """Built-in string conversion"""
+        return str(value)
+    
+    def _builtin_bool(self, value):
+        """Built-in boolean conversion"""
+        return bool(value)
+    
+    def _builtin_list(self, iterable=None):
+        """Built-in list creation"""
+        if iterable is None:
+            return []
+        return list(iterable)
+    
+    def _builtin_dict(self, iterable=None):
+        """Built-in dictionary creation"""
+        if iterable is None:
+            return {}
+        return dict(iterable)
+    
+    def _builtin_tuple(self, iterable=None):
+        """Built-in tuple creation"""
+        if iterable is None:
+            return ()
+        return tuple(iterable)
+    
+    def _builtin_set(self, iterable=None):
+        """Built-in set creation"""
+        if iterable is None:
+            return set()
+        return set(iterable)
+    
+    def _builtin_type(self, obj):
+        """Built-in type function"""
+        type_map = {
+            int: "int",
+            float: "float",
+            str: "str",
+            bool: "bool",
+            list: "list",
+            dict: "dict",
+            tuple: "tuple",
+            set: "set",
+            type(None): "null",
+            NouhaFunction: "function",
+            NouhaClass: "class",
+            NouhaObject: "object",
+        }
+        
+        obj_type = type(obj)
+        return type_map.get(obj_type, str(obj_type))
+    
+    def _builtin_isinstance(self, obj, class_or_type):
+        """Built-in isinstance function"""
+        if isinstance(class_or_type, str):
+            # Type name as string
+            type_name = self._builtin_type(obj)
+            return type_name == class_or_type
+        else:
+            # Actual type/class
+            return isinstance(obj, class_or_type)
+    
+    def _builtin_map(self, func, iterable):
+        """Built-in map function"""
+        if not callable(func):
+            raise NouhaRuntimeError("First argument to map must be callable")
+        
+        return [func(item) for item in iterable]
+    
+    def _builtin_filter(self, func, iterable):
+        """Built-in filter function"""
+        if not callable(func):
+            raise NouhaRuntimeError("First argument to filter must be callable")
+        
+        return [item for item in iterable if func(item)]
+    
+    def _builtin_reduce(self, func, iterable, initial=None):
+        """Built-in reduce function"""
+        if not callable(func):
+            raise NouhaRuntimeError("First argument to reduce must be callable")
+        
+        if not iterable:
+            if initial is not None:
+                return initial
+            raise NouhaRuntimeError("reduce() of empty sequence with no initial value")
+        
+        iterator = iter(iterable)
+        
+        if initial is None:
+            try:
+                value = next(iterator)
+            except StopIteration:
+                raise NouhaRuntimeError("reduce() of empty sequence with no initial value")
+        else:
+            value = initial
+        
+        for item in iterator:
+            value = func(value, item)
+        
+        return value
+    
+    def _builtin_open(self, filename, mode='r', encoding='utf-8'):
+        """Built-in file open function"""
+        try:
+            return open(filename, mode, encoding=encoding)
+        except Exception as e:
+            raise NouhaRuntimeError(f"Cannot open file '{filename}': {e}")
+    
+    def _builtin_read(self, fileobj, size=-1):
+        """Built-in file read function"""
+        try:
+            return fileobj.read(size)
+        except Exception as e:
+            raise NouhaRuntimeError(f"Cannot read file: {e}")
+    
+    def _builtin_write(self, fileobj, data):
+        """Built-in file write function"""
+        try:
+            return fileobj.write(data)
+        except Exception as e:
+            raise NouhaRuntimeError(f"Cannot write to file: {e}")
+    
+    def _builtin_exit(self, code=0):
+        """Built-in exit function"""
+        sys.exit(code)
 
-# ==================== REPL & FILE EXECUTION ====================
-class Nouha:
+# ==================== COMMAND LINE INTERFACE ====================
+class NouhaCLI:
     def __init__(self):
-        self.interpreter = Interpreter()
+        self.interpreter = AdvancedInterpreter()
+        self.history = []
+        self.context = {}
     
     def run_file(self, filename: str):
+        """Run a Nouha script file"""
         try:
             with open(filename, 'r', encoding='utf-8') as f:
                 source = f.read()
-            self.interpreter.interpret(source)
+            
+            print(f"Running {filename}...")
+            success = self.interpreter.interpret(source, filename)
+            
+            if success:
+                print(f"\n Execution completed successfully.")
+            else:
+                print(f"\n Execution failed.")
+                
         except FileNotFoundError:
-            print(f"File '{filename}' not found")
+            print(f"Error: File '{filename}' not found.")
         except Exception as e:
             print(f"Error: {e}")
     
-    def run_prompt(self):
-        print("Nouha Language v1.0 - Type 'exit' to quit")
-        print("Help: Type 'help' to see available commands")
+    def run_repl(self):
+        """Start the REPL (Read-Eval-Print Loop)"""
+        print("""
+        ╔══════════════════════════════════════════════════════════╗
+        ║                 Nouha Programming Language               ║
+        ║                    Advanced Interpreter                  ║
+        ║                     Version 2.0.0                        ║
+        ╚══════════════════════════════════════════════════════════╝
+        
+        Type '.help' for help, '.exit' to quit.
+        """)
         
         while True:
             try:
-                line = input(">>> ")
-                if line.strip() == "exit":
+                # Get input
+                try:
+                    line = input("nouha> ").strip()
+                except EOFError:
+                    print("\nGoodbye!")
                     break
-                elif line.strip() == "help":
-                    self.show_help()
-                elif line.strip() == "clear":
-                    os.system('clear' if os.name == 'posix' else 'cls')
-                else:
-                    self.interpreter.interpret(line)
+                
+                # Handle empty input
+                if not line:
+                    continue
+                
+                # Handle commands
+                if line.startswith('.'):
+                    self._handle_command(line[1:])
+                    continue
+                
+                # Add to history
+                self.history.append(line)
+                
+                # Try to interpret
+                try:
+                    result = self.interpreter.interpret(line, "<repl>")
+                    if result is not None:
+                        print(f"Result: {result}")
+                except NouhaRuntimeError as e:
+                    print(f"Error: {e}")
+                except Exception as e:
+                    print(f"Internal error: {e}")
+                    
             except KeyboardInterrupt:
-                print("\nGoodbye!")
-                break
-            except EOFError:
-                print("\nGoodbye!")
-                break
-            except Exception as e:
-                print(f"Error: {e}")
+                print("\nInterrupted. Type '.exit' to quit.")
     
-    def show_help(self):
+    def _handle_command(self, command: str):
+        """Handle REPL commands"""
+        parts = command.split()
+        cmd = parts[0].lower() if parts else ""
+        args = parts[1:] if len(parts) > 1 else []
+        
+        if cmd == "help":
+            self._show_help()
+        elif cmd == "exit" or cmd == "quit":
+            print("Goodbye!")
+            sys.exit(0)
+        elif cmd == "clear":
+            os.system('cls' if os.name == 'nt' else 'clear')
+        elif cmd == "history":
+            self._show_history()
+        elif cmd == "reset":
+            self.interpreter = AdvancedInterpreter()
+            print("Interpreter reset.")
+        elif cmd == "debug":
+            self.interpreter.debug_mode = not self.interpreter.debug_mode
+            print(f"Debug mode: {'ON' if self.interpreter.debug_mode else 'OFF'}")
+        elif cmd == "modules":
+            self._show_modules()
+        elif cmd == "vars":
+            self._show_variables()
+        elif cmd == "load":
+            if args:
+                self.run_file(args[0])
+            else:
+                print("Usage: .load <filename>")
+        else:
+            print(f"Unknown command: '{cmd}'. Type '.help' for available commands.")
+    
+    def _show_help(self):
+        """Show help message"""
         help_text = """
-        ======== Nouha Language - Commands ========
+        Available Commands:
+          .help                    Show this help message
+          .exit/.quit              Exit the REPL
+          .clear                   Clear the screen
+          .history                 Show command history
+          .reset                   Reset the interpreter
+          .debug                   Toggle debug mode
+          .modules                 Show loaded modules
+          .vars                    Show current variables
+          .load <file>             Load and run a Nouha file
         
-        Code Examples:
+        Language Features:
+          - Variables: let x = 10; const pi = 3.14;
+          - Functions: func add(a, b) { return a + b; }
+          - Classes: class Person { constructor(name) { this.name = name; } }
+          - Control flow: if/else, while, for, match/case
+          - Exception handling: try/catch/finally
+          - Modules: import "math"; from "os" import path;
+          - Async/await: async func fetch() { await request(); }
+          - Generators: func* range(n) { for (i in 0..n) { yield i; } }
+          - Comprehensions: [x*2 for x in 1..10 if x % 2 == 0]
         
-        # Variables and Operations
-        x = 10;
-        y = 20;
-        sum = x + y;
-        print(sum);
-        
-        # Conditionals
-        if (x > y) {
-          print("x is greater than y");
-        } else {
-          print("x is less than y");
-        }
-        
-        # Loops
-        i = 0;
-        while (i < 5) {
-          print(i);
-          i = i + 1;
-        }
-        
-        # Functions
-        func sum(a, b) {
-          return a + b;
-        }
-        result = sum(10, 20);
-        print(result);
-        
-        # Lists
-        lst = [1, 2, 3, 4, 5];
-        print(len(lst));
-        
-        # Dictionaries
-        person = {"name": "Alice", "age": 25};
-        print(person["name"]);
-        
-        # Try-Catch
-        try {
-          result = 10 / 0;
-        } catch (error) {
-          print("Error: " + error);
-        }
-        
-        # Special Commands:
-        exit    - Quit the program
-        clear   - Clear the screen
-        help    - Show this message
-        
-        ===========================================
+        Built-in Types:
+          - Numbers: 42, 3.14, 0xFF, 0b1010
+          - Strings: "hello", 'world', `template ${var}`
+          - Booleans: true, false
+          - Collections: [1, 2, 3], {"key": "value"}, (1, 2), {1, 2, 3}
+          - Null/Undefined: null, undefined
         """
         print(help_text)
-
-# ==================== MAIN ====================
-def main():
-    nouha = Nouha()
     
-    if len(sys.argv) == 1:
-        nouha.run_prompt()
-    elif len(sys.argv) == 2:
-        nouha.run_file(sys.argv[1])
-    else:
-        print("Usage: python nouha.py [filename]")
+    def _show_history(self):
+        """Show command history"""
+        if not self.history:
+            print("No history yet.")
+            return
+        
+        for i, cmd in enumerate(self.history[-20:], 1):  # Show last 20 commands
+            print(f"{i:3}: {cmd}")
+    
+    def _show_modules(self):
+        """Show loaded modules"""
+        modules = list(self.interpreter.modules.keys())
+        if modules:
+            print("Loaded modules:", ", ".join(sorted(modules)))
+        else:
+            print("No modules loaded.")
+    
+    def _show_variables(self):
+        """Show current variables"""
+        # This would need access to the current scope
+        print("Variable inspection not fully implemented yet.")
 
-if __name__ == "__main__":
-    main()
+# ==================== MAIN ENTRY POINT ====================
+def main():
+    """Main entry point for the Nouha interpreter"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description="Nouha Programming Language Interpreter",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)
